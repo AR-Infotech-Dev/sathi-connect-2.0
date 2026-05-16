@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sathi-Connect</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cloudflare.com">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <section class="license-screen hidden" id="licenseScreen">
+    <div class="license-card">
+      <h1 id="licenseScreenTitle">License not activated</h1>
+      <p id="licenseScreenText">Import a valid license file to continue.</p>
+
+      <div>
+        <strong>Machine ID</strong>
+        <code id="licenseMachineId">-</code>
+        <button class="copy-button" data-copy="licenseMachineId" type="button">Copy</button>
+      </div>
+
+      <div>
+        <strong>Tally license</strong>
+        <code id="licenseTallyNumber">-</code>
+      </div>
+
+      <div class="license-scope-row">
+        <strong>SATHI scopes</strong>
+        <div class="license-scope-chips" id="licenseScopeChips">
+          <span>-</span>
+        </div>
+      </div>
+
+      <input id="licenseFileInput" type="file" accept=".lic,.json">
+      <button id="activateLicenseBtn" type="button">Import License</button>
+      <button id="closeLicenseScreenBtn" type="button">Close</button>
+    </div>
+  </section>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="language-card">
+        <span data-i18n="languageLabel">Operator language</span>
+        <button class="language-toggle" id="languageToggle" type="button" aria-pressed="false">
+          <span id="languageToggleText">मराठी माहिती</span>
+        </button>
+      </div>
+
+      <nav class="nav-stack" aria-label="Primary">
+        <button class="nav-item active" data-tab="dashboard" type="button">
+          <span class="nav-icon">D</span>
+          <span data-i18n="navDashboard">Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="orders" type="button">
+          <span class="nav-icon">S</span>
+          <span data-i18n="navOrders">SATHI to Tally</span>
+        </button>
+        <button class="nav-item" data-tab="portalPush" type="button">
+          <span class="nav-icon">T</span>
+          <span data-i18n="navPortalPush">Tally to SATHI</span>
+        </button>
+        <button class="nav-item" data-tab="reports" type="button">
+          <span class="nav-icon">R</span>
+          <span data-i18n="navReports">Reports</span>
+        </button>
+        <button class="nav-item" data-tab="lots" type="button">
+          <span class="nav-icon">L</span>
+          <span data-i18n="navLots">Item Mapping</span>
+        </button>
+        <button class="nav-item demo-hidden" data-tab="archive" type="button">
+          <span class="nav-icon">A</span>
+          <span data-i18n="navArchive">Archive</span>
+        </button>
+        <button class="nav-item" data-tab="settings" type="button">
+          <span class="nav-icon">C</span>
+          <span data-i18n="navSettings">Settings</span>
+        </button>
+        <button class="nav-item" data-tab="companyUdfs" type="button">
+          <span class="nav-icon">U</span>
+          <span data-i18n="navTallySetup">Tally Setup</span>
+        </button>
+        <button class="nav-item" data-tab="license" type="button">
+          <span class="nav-icon">K</span>
+          <span>License</span>
+        </button>
+        <button class="nav-item" data-tab="errors" type="button">
+          <span class="nav-icon">E</span>
+          <span data-i18n="navIssues">Issues</span>
+        </button>
+      </nav>
+
+      <!-- <div class="sidebar-company">
+        <div class="mini-label" data-i18n="activeCompany">Active company</div>
+        <strong id="sidebarCompanyName">No company selected</strong>
+        <span id="sidebarTallyUrl">http://127.0.0.1:9000</span>
+        <label class="sidebar-scope-select">
+          <span>Active licence</span>
+          <select id="licenceScopeSelect">
+            <option value="">Connect Tally first</option>
+          </select>
+        </label>
+        <small id="licenceScopeNote">Licence scope not loaded.</small>
+        <small id="tallyNote">Tally status not checked.</small>
+        <button class="sidebar-test-button" id="testTallyBtn" type="button" data-i18n="testTally">Test Tally</button>
+      </div> -->
+
+      <div class="sidebar-footer">
+        <div class="developed-by">
+          <span data-i18n="developedBy">Developed by</span>
+          <strong>AR Infotech</strong>
+        </div>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="topbar-brand" aria-label="Sathi-Connect">
+        <span>SC</span>
+        <div>
+          <strong>Sathi-Connect</strong>
+          <small>SATHI + Tally</small>
+        </div>
+      </div>
+      <div class="topbar-title">
+        <div class="eyebrow" data-i18n="eyebrow">Integration control room</div>
+        <h2 id="pageTitle">Dashboard</h2>
+      </div>
+      <div class="top-actions">
+        <button class="ghost-button" id="refreshErrorsBtn" type="button" data-i18n="refresh"><i
+            class="fa-solid fa-arrow-rotate-right"></i> Refresh</button>
+        <button class="primary-button demo-hidden" id="sendWorkbenchTopBtn" type="button" data-i18n="apiTools">API
+          Tools</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="license-banner hidden" id="licenseBanner">
+        <strong id="licenseBannerTitle">License not activated</strong>
+        <span id="licenseBannerText">SATHI API calls are blocked.</span>
+        <button id="openLicenseScreenBtn" type="button">Manage License</button>
+      </div>
+      <section class="tab-panel active" id="dashboard">
+        <section class="dashboard-work-panel">
+          <button class="dashboard-work-card" data-action="quickFetchOrders" type="button">
+            <span>SATHI to Tally</span>
+            <strong>Fetch lot and create purchase voucher</strong>
+            <small>Use this for portal inward data.</small>
+            <em>Start</em>
+          </button>
+          <button class="dashboard-work-card" data-switch-tab="portalPush" type="button">
+            <span>Tally to SATHI</span>
+            <strong>Create SATHI order from sales bill</strong>
+            <small>Use this after sales bill is ready in Tally.</small>
+            <em>Start</em>
+          </button>
+        </section>
+
+        <div class="status-grid dashboard-status-strip">
+          <div class="metric">
+            <span data-i18n="metricSaathi">SATHI API</span>
+            <strong id="saathiStatus">Not checked</strong>
+            <small id="saathiStatusHint">Ready</small>
+          </div>
+          <div class="metric">
+            <span>Tally</span>
+            <strong id="tallyStatus">Not checked</strong>
+            <small id="tallyStatusHint">127.0.0.1:9000 XML interface</small>
+          </div>
+          <div class="metric">
+            <span data-i18n="metricOrders">Orders</span>
+            <strong id="orderCount">0</strong>
+            <small id="orderStatusHint">No data loaded</small>
+          </div>
+          <div class="metric warning">
+            <span data-i18n="metricErrors">Open Errors</span>
+            <strong id="errorCount">0</strong>
+            <small data-i18n="metricErrorsHint">Support-ready issue log</small>
+          </div>
+        </div>
+
+        <details class="panel workbench-panel advanced-workbench">
+          <summary class="panel-header">
+            <div>
+              <h3 data-i18n="advancedApiTitle">SATHI Request</h3>
+              <p data-i18n="advancedApiText">Select the work and run the request.</p>
+            </div>
+            <div class="button-row">
+              <span class="log-summary-chip" data-i18n="showTestingTools">Request panel</span>
+              <button class="primary-button" id="sendWorkbenchBtn" type="button" data-i18n="runAction">Run
+                Action</button>
+            </div>
+          </summary>
+
+          <section class="api-progress-panel hidden" id="apiProgressPanel" aria-live="polite">
+            <div class="api-progress-head">
+              <div>
+                <strong id="apiProgressTitle">Preparing request</strong>
+                <small id="apiProgressText">Creating signed SATHI request.</small>
+              </div>
+              <span id="apiProgressPercent">0%</span>
+            </div>
+            <div class="api-progress-track">
+              <div class="api-progress-fill" id="apiProgressFill"></div>
+            </div>
+            <div class="api-progress-steps" id="apiProgressSteps">
+              <span data-progress-step="0">Prepare</span>
+              <span data-progress-step="1">Send</span>
+              <span data-progress-step="2">Response</span>
+              <span data-progress-step="3">Save</span>
+              <span data-progress-step="4">Refresh</span>
+            </div>
+          </section>
+
+          <div class="operator-grid">
+            <div class="request-editor">
+              <div class="compact-form">
+                <label class="api-action-select hidden">
+                  <span data-i18n="apiAction">API action</span>
+                  <select id="apiAction">
+                    <option value="pendingOrders">Get pending orders by buyer code</option>
+                    <option value="pullLot">Pull lot details - marks received</option>
+                    <option value="fetchLot">Fetch already received lot details</option>
+                    <option value="createOrder">Create SATHI order</option>
+                  </select>
+                </label>
+                <div class="api-action-buttons" aria-label="SATHI actions">
+                  <button class="api-action-button active" data-api-action="pendingOrders" type="button">
+                    <span>1</span>
+                    <strong>Fetch pending orders</strong>
+                    <small>Get SATHI orders for selected licence.</small>
+                    <em>Start</em>
+                  </button>
+                  <button class="api-action-button" data-api-action="fetchLot" type="button">
+                    <span>2</span>
+                    <strong>View lot details</strong>
+                    <small>Use received voucher without marking pending.</small>
+                    <em>Open</em>
+                  </button>
+                  <button class="api-action-button danger-action" data-api-action="pullLot" type="button">
+                    <span>3</span>
+                    <strong>Receive lot</strong>
+                    <small>Marks order received on SATHI.</small>
+                    <em>Open</em>
+                  </button>
+                  <button class="api-action-button" data-api-action="createOrder" type="button">
+                    <span>4</span>
+                    <strong>Create SATHI order</strong>
+                    <small>Testing tool for create order API.</small>
+                    <em>Open</em>
+                  </button>
+                </div>
+
+                <div class="two-col">
+                  <label>
+                    <span data-i18n="ownerCode">Owner code</span>
+                    <input id="quickOwnerCode" type="text" placeholder="Owner code">
+                  </label>
+                  <label>
+                    <span data-i18n="stateCode">State code</span>
+                    <input id="quickStateCode" type="text" placeholder="27">
+                  </label>
+                </div>
+
+                <div class="two-col request-lot-fields">
+                  <label>
+                    <span data-i18n="voucherNumber">Voucher number</span>
+                    <input id="voucherNumber" type="text" list="availableVoucherNumbers" placeholder="Voucher number">
+                    <datalist id="availableVoucherNumbers"></datalist>
+                  </label>
+                  <label>
+                    <span data-i18n="locationCode">Location code</span>
+                    <input id="locationCode" type="text" placeholder="Location code">
+                  </label>
+                </div>
+                <label class="request-lot-fields">
+                  <span data-i18n="availableVouchers">Available fetched voucher numbers</span>
+                  <select id="voucherNumberSelect">
+                    <option value="">Select fetched voucher</option>
+                  </select>
+                </label>
+
+                <label class="create-order-json">
+                  <span data-i18n="createOrderJson">Create order JSON</span>
+                  <textarea id="createOrderJson" spellcheck="false"></textarea>
+                </label>
+              </div>
+
+              <div class="danger-note hidden" id="pullSafetyNote">
+                <span data-i18n="pullSafety">Pull lot details can remove the order from pending orders. Use this only
+                  after confirming the voucher number. The response will be saved locally before it is shown.</span>
+              </div>
+
+            </div>
+          </div>
+
+          <section class="request-preview-panel">
+            <div class="request-preview-head">
+              <div>
+                <h3 data-i18n="signedPreviewTitle">Signed request preview</h3>
+                <p data-i18n="signedPreviewText">Endpoint, headers and final body are editable before sending the API
+                  test call.</p>
+              </div>
+              <span class="log-summary-chip" data-i18n="testingView">Testing view</span>
+            </div>
+            <div class="request-preview-grid">
+              <article class="request-preview-card request-full-card">
+                <div class="preview-title">
+                  <span>Full request</span>
+                  <button class="copy-button" data-copy="fullRequestPreview" type="button"
+                    data-i18n="copy">Copy</button>
+                </div>
+                <textarea id="fullRequestPreview" spellcheck="false" readonly>{}</textarea>
+              </article>
+              <article class="request-preview-card request-endpoint-card">
+                <div class="preview-title">
+                  <span data-i18n="endpoint">Endpoint</span>
+                  <button class="copy-button" data-copy="requestUrl" type="button" data-i18n="copy">Copy</button>
+                </div>
+                <code id="requestUrl">Preview not generated.</code>
+              </article>
+              <article class="request-preview-card">
+                <div class="preview-title">
+                  <span data-i18n="headers">Headers</span>
+                  <button class="copy-button" data-copy="requestHeaders" type="button" data-i18n="copy">Copy</button>
+                </div>
+                <textarea id="requestHeaders" spellcheck="false">{}</textarea>
+              </article>
+              <article class="request-preview-card">
+                <div class="preview-title">
+                  <span data-i18n="finalRequestBody">Final request body</span>
+                  <button class="copy-button" data-copy="requestBody" type="button" data-i18n="copy">Copy</button>
+                </div>
+                <textarea id="requestBody" spellcheck="false">{}</textarea>
+              </article>
+            </div>
+          </section>
+
+          <div class="response-console">
+            <div class="preview-title">
+              <span data-i18n="lastResponse">Last response / error</span>
+              <button class="copy-button" data-copy="lastResponse" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <pre id="lastResponse">No request sent in this session.</pre>
+          </div>
+        </details>
+
+        <div class="work-grid single-column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>SATHI Status</h3>
+                <p data-i18n="saathiStatusHelp">Use this note while testing the currently selected API action.</p>
+              </div>
+            </div>
+            <div class="callout" id="lastFetchNote">No SATHI call has completed in this session.</div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="orders">
+        <section class="panel table-panel">
+          <div class="panel-header">
+            <div>
+              <h3 data-i18n="pushQueueTitle">Create Tally Bills</h3>
+              <p data-i18n="pushQueueText">SATHI lots ready for Tally purchase entry appear here.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="clearOrdersBtn" type="button" data-i18n="clear">Clear</button>
+              <button class="secondary-button" id="reviewMappingsBtn" type="button" data-i18n="reviewMapping">Review
+                Mapping</button>
+              <button class="secondary-button" id="checkTallyBulkBtn" type="button" data-i18n="checkTallyStatus">Check
+                Tally Status</button>
+              <button class="primary-button" id="pushBulkBtn" type="button" data-i18n="bulkPush">Bulk Push to
+                Tally</button>
+              <button class="primary-button" id="fetchOrdersTableBtn" type="button" data-i18n="fetchOrders">Fetch
+                Orders</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="thVoucher">Voucher Number</th>
+                  <th data-i18n="thParty">Party</th>
+                  <th class="amount" data-i18n="thAmount">Amount</th>
+                  <th data-i18n="thItemMapping">Item Mapping</th>
+                  <th>Tally</th>
+                  <th data-i18n="thAction">Action</th>
+                </tr>
+              </thead>
+              <tbody id="ordersBody">
+                <tr>
+                  <td colspan="6" class="empty-cell">No vouchers ready yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <details class="panel table-panel tally-log-panel">
+          <summary class="panel-header">
+            <div>
+              <h3 data-i18n="tallyLogsTitle">Tally Operation Logs</h3>
+              <p data-i18n="tallyLogsText">Every Tally check and push is recorded here with the exact reason returned by
+                Tally.</p>
+            </div>
+            <span class="log-summary-chip" data-i18n="showLogs">Show logs</span>
+          </summary>
+          <div class="panel-header compact-log-actions">
+            <div>
+              <h3 data-i18n="recentLogs">Recent Logs</h3>
+              <p data-i18n="recentLogsText">Support-ready Tally operation history.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="clearTallyLogsBtn" type="button" data-i18n="clearLogs">Clear
+                Logs</button>
+              <button class="primary-button" id="refreshTallyLogsBtn" type="button" data-i18n="refreshLogs">Refresh
+                Logs</button>
+            </div>
+          </div>
+          <div class="tally-log-list" id="tallyLogList">
+            <div class="empty-state" data-i18n="noTallyLogs">No Tally operations recorded yet.</div>
+          </div>
+        </details>
+      </section>
+
+      <section class="tab-panel" id="portalPush">
+        <section class="panel portal-push-panel">
+          <div class="panel-header">
+            <div>
+              <h3 data-i18n="portalQueueTitle">Send Tally Bills to SATHI</h3>
+              <p data-i18n="portalQueueText">Tally sales bills ready for SATHI order creation appear here.</p>
+            </div>
+            <div class="button-row">
+              <label class="date-filter-label">
+                From
+                <input id="portalDateFrom" type="date">
+              </label>
+              <label class="date-filter-label">
+                To
+                <input id="portalDateTo" type="date">
+              </label>
+              <button class="secondary-button" id="portalRefreshSalesBtn" type="button">Fetch Sales Entries</button>
+            </div>
+          </div>
+          <div class="portal-source-strip">
+            <div>
+              <span data-i18n="portalSalesVoucherType">Sales voucher type</span>
+              <strong id="portalSalesVoucherType">Sales</strong>
+            </div>
+            <div>
+              <span>Buyer licence</span>
+              <strong id="portalPartyLicenseValue">From party master</strong>
+            </div>
+            <div>
+              <span data-i18n="portalOriginalOwnerSource">Original owner source</span>
+              <strong data-i18n="portalOriginalOwnerSourceText">Lot trace / batch history</strong>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Voucher Number</th>
+                  <th>Party</th>
+                  <th>Amount</th>
+                  <th>Buyer licence</th>
+                  <th>Type</th>
+                  <th>Lot trace</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="portalSalesBody">
+                <tr>
+                  <td colspan="7" class="empty-cell" data-i18n="portalQueueEmpty">No Tally sales entries fetched yet.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <details class="panel portal-push-panel portal-manual-panel">
+          <summary class="panel-header">
+            <div>
+              <h3 data-i18n="portalFormTitle">Selected voucher details</h3>
+              <p data-i18n="portalFormText">Open only if SATHI asks for correction before sending.</p>
+            </div>
+            <span class="log-summary-chip">Manual edit</span>
+          </summary>
+          <div class="panel-header compact-log-actions">
+            <div>
+              <h3 data-i18n="portalFormTitle">Portal Push Details</h3>
+              <p data-i18n="portalFormText">Fields with business names are shown here. Technical request names stay in
+                API preview.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="portalPreviewBtn" type="button" data-i18n="previewRequest">Preview
+                Request</button>
+              <button class="primary-button" id="portalSendBtn" type="button" data-i18n="sendToPortal">Send to
+                Portal</button>
+            </div>
+          </div>
+          <form class="portal-create-form" id="portalPushForm">
+            <div class="portal-form-section">
+              <div class="config-section-title" data-i18n="portalPartySection">Party and licence details</div>
+              <div class="config-group-grid three-col">
+                <label>
+                  <span data-i18n="portalBuyerLicense">Buyer licence number</span>
+                  <input name="buyerCode" type="text" placeholder="Buyer licence no.">
+                </label>
+                <label>
+                  <span data-i18n="portalSellerLicense">Our seller licence number</span>
+                  <input name="ownerCode" type="text" placeholder="Seller licence no.">
+                </label>
+                <label>
+                  <span data-i18n="portalStockLocation">Stock location licence</span>
+                  <input name="locationCode" type="text" placeholder="Usually same as seller">
+                </label>
+                <label>
+                  <span data-i18n="portalOriginalOwner">Original supplier licence</span>
+                  <input name="originalOwner" type="text" placeholder="From received lot">
+                </label>
+                <input name="sellerRole" type="hidden" value="DEALER">
+                <input name="buyerRole" type="hidden" value="DEALER">
+                <input name="isRetailSell" type="hidden" value="N">
+              </div>
+            </div>
+
+            <div class="portal-form-section">
+              <div class="config-section-title" data-i18n="portalLotSection">Lot details</div>
+              <div class="config-group-grid four-col">
+                <label>
+                  <span data-i18n="portalLotNumber">Lot number</span>
+                  <input name="lotNum" type="text" placeholder="Lot no.">
+                </label>
+                <label>
+                  <span data-i18n="portalCertification">Certification class</span>
+                  <input name="certificationClass" type="text" placeholder="CERTIFIED I">
+                </label>
+                <label>
+                  <span data-i18n="portalPacking">Packing size</span>
+                  <input name="packingSize" type="text" placeholder="20">
+                </label>
+                <label>
+                  <span data-i18n="portalQuantity">Quantity</span>
+                  <input name="quantity" type="number" step="0.001" placeholder="0.2">
+                </label>
+              </div>
+            </div>
+
+            <details class="portal-extra-fields">
+              <summary>
+                <span data-i18n="portalMoreFields">More portal fields</span>
+                <small data-i18n="portalMoreHint">Use only if SATHI asks for these details.</small>
+              </summary>
+              <div class="config-group-grid four-col">
+                <label>
+                  <span data-i18n="stateCode">State code</span>
+                  <input name="stateCode" type="text" placeholder="27">
+                </label>
+                <label>
+                  <span data-i18n="portalStateName">State name</span>
+                  <input name="stateName" type="text" placeholder="Maharashtra">
+                </label>
+                <label>
+                  <span data-i18n="portalPan">PAN number</span>
+                  <input name="panNumber" type="text" placeholder="A">
+                </label>
+                <label>
+                  <span data-i18n="portalGst">GST number</span>
+                  <input name="gstNumber" type="text" placeholder="A">
+                </label>
+                <label>
+                  <span data-i18n="portalPhone">Phone number</span>
+                  <input name="phoneNumber" type="text">
+                </label>
+                <label>
+                  <span data-i18n="portalPin">Pin code</span>
+                  <input name="pin" type="text">
+                </label>
+                <label>
+                  <span data-i18n="portalVillage">Village</span>
+                  <input name="villageName" type="text">
+                </label>
+                <label>
+                  <span>Village code</span>
+                  <input name="villageCode" type="text">
+                </label>
+                <label>
+                  <span>Block name</span>
+                  <input name="blockName" type="text">
+                </label>
+                <label>
+                  <span>Block code</span>
+                  <input name="blockCode" type="text">
+                </label>
+                <label>
+                  <span>District name</span>
+                  <input name="districtName" type="text">
+                </label>
+                <label>
+                  <span>District code</span>
+                  <input name="districtCode" type="text">
+                </label>
+                <label>
+                  <span>Plot no.</span>
+                  <input name="plotNo" type="text">
+                </label>
+                <label>
+                  <span data-i18n="portalSubsidy">Subsidy amount</span>
+                  <input name="subsidy" type="number" step="0.01" value="0">
+                </label>
+              </div>
+            </details>
+          </form>
+        </details>
+      </section>
+
+      <section class="tab-panel" id="lots">
+        <div class="lot-summary-grid">
+          <div class="metric">
+            <span data-i18n="billNumber">Bill Number</span>
+            <strong id="lotBillNumber">-</strong>
+            <small id="lotBillDate">No lot response loaded</small>
+          </div>
+          <div class="metric">
+            <span data-i18n="seller">Seller</span>
+            <strong id="lotSellerName">-</strong>
+            <small id="lotSellerCode">-</small>
+          </div>
+          <div class="metric">
+            <span data-i18n="buyer">Buyer</span>
+            <strong id="lotBuyerName">-</strong>
+            <small id="lotBuyerCode">-</small>
+          </div>
+          <div class="metric">
+            <span data-i18n="totalBill">Total Bill</span>
+            <strong id="lotBillTotal">0</strong>
+            <small id="lotLocation">-</small>
+          </div>
+        </div>
+
+        <section class="panel item-mapping-panel" id="itemMappingPanel">
+          <div class="panel-header">
+            <div>
+              <h3 data-i18n="itemMappingTitle">Item Mapping</h3>
+              <p data-i18n="itemMappingText">Select the matching Tally item only once. Saved mapping will be used next
+                time.</p>
+            </div>
+            <div class="button-row">
+              <span class="mapping-count-chip" id="mappingReviewNote">No lot response loaded</span>
+              <button class="primary-button" id="saveItemMappingsBtn" type="button" data-i18n="saveShowQueue">Save &
+                Show Push Queue</button>
+            </div>
+          </div>
+          <div class="mapping-review-list" id="mappingReviewList">
+            <div class="empty-state" data-i18n="fetchLotForMapping">Fetch lot details to review item mapping.</div>
+          </div>
+        </section>
+
+        <details class="panel table-panel advanced-lot-table">
+          <summary class="panel-header">
+            <div>
+              <h3 data-i18n="viewLotData">View lot data</h3>
+              <p data-i18n="viewLotDataText">Raw lot lines are hidden during normal use.</p>
+            </div>
+            <span class="log-summary-chip" data-i18n="showDetails">Show details</span>
+          </summary>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="thLot">Lot Number</th>
+                  <th data-i18n="thCrop">Crop</th>
+                  <th data-i18n="thVariety">Variety</th>
+                  <th data-i18n="thClass">Class</th>
+                  <th data-i18n="thPacking">Packing</th>
+                  <th class="amount" data-i18n="thBags">Bags</th>
+                  <th class="amount">Qty</th>
+                  <th class="amount" data-i18n="thRate">Rate</th>
+                  <th data-i18n="thExpiry">Expiry</th>
+                  <th>GST %</th>
+                  <th>HSN</th>
+                </tr>
+              </thead>
+              <tbody id="lotRowsBody">
+                <tr>
+                  <td colspan="11" class="empty-cell">No lot details loaded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <section class="tab-panel" id="reports">
+        <section class="panel reports-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Reports</h3>
+              <p>Separate reporting area. Push Queue and Portal Push logic stays untouched.</p>
+            </div>
+            <div class="button-row">
+              <label class="date-filter-label">
+                From
+                <input id="reportDateFrom" type="date">
+              </label>
+              <label class="date-filter-label">
+                To
+                <input id="reportDateTo" type="date">
+              </label>
+              <button class="primary-button" id="refreshReportsBtn" type="button">Refresh Report</button>
+            </div>
+          </div>
+          <div class="report-switch">
+            <button class="report-switch-button active" data-report-type="purchase" type="button">
+              <span>Received from SATHI</span>
+              <strong id="purchaseReportCount">0</strong>
+            </button>
+            <button class="report-switch-button" data-report-type="sales" type="button">
+              <span>Sent to SATHI</span>
+              <strong id="salesReportCount">0</strong>
+            </button>
+            <div>
+              <span>Active licence</span>
+              <strong id="reportScopeText">Not loaded</strong>
+            </div>
+          </div>
+          <div class="report-table-wrap">
+            <table class="report-table">
+              <thead id="reportTableHead"></thead>
+              <tbody id="reportTableBody">
+                <tr>
+                  <td class="empty-cell">Select report and refresh.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <details class="panel reports-panel report-addon-panel">
+          <summary class="panel-header">
+            <div>
+              <h3>Extra Tools We Can Add</h3>
+              <p>These are separate add-ons from the Swagger billing APIs. We can activate them one by one.</p>
+            </div>
+            <span class="log-summary-chip">Show tools</span>
+          </summary>
+          <div class="report-tool-grid">
+            <article class="report-tool-card">
+              <span>Lot history</span>
+              <strong>Check lot owner</strong>
+              <p>Find where the lot came from, original owner and inward bill details.</p>
+              <em class="tool-mode active">Active</em>
+              <button class="secondary-button report-tool-button" data-report-addon="lotTrace" type="button">Open Lot
+                Check</button>
+            </article>
+            <article class="report-tool-card">
+              <span>Problems</span>
+              <strong>Find pending work</strong>
+              <p>Show missing licence, owner, packing or SATHI push status in loaded reports.</p>
+              <em class="tool-mode active">Active</em>
+              <button class="secondary-button report-tool-button" data-report-addon="mismatch" type="button">Check
+                Problems</button>
+            </article>
+            <article class="report-tool-card">
+              <span>Return entry</span>
+              <strong>Handle returns</strong>
+              <p>Separate flow for return stock or wrong entry correction.</p>
+              <em class="tool-mode inactive">Inactive</em>
+              <button class="secondary-button report-tool-button" data-report-addon="returns" type="button"
+                disabled>Coming soon</button>
+            </article>
+            <article class="report-tool-card">
+              <span>Bill copy</span>
+              <strong>Save SATHI bill</strong>
+              <p>Keep SATHI bill copy linked with the related Tally voucher.</p>
+              <em class="tool-mode inactive">Inactive</em>
+              <button class="secondary-button report-tool-button" data-report-addon="pdf" type="button" disabled>Coming
+                soon</button>
+            </article>
+            <article class="report-tool-card">
+              <span>Stock check</span>
+              <strong>Available lots</strong>
+              <p>See lot, crop, variety, packing and available quantity.</p>
+              <em class="tool-mode inactive">Inactive</em>
+              <button class="secondary-button report-tool-button" data-report-addon="stock" type="button"
+                disabled>Coming soon</button>
+            </article>
+            <article class="report-tool-card">
+              <span>Work history</span>
+              <strong>Check activity</strong>
+              <p>See recent Tally and SATHI actions for support or checking.</p>
+              <em class="tool-mode active">Active</em>
+              <button class="secondary-button report-tool-button" data-report-addon="audit" type="button">Open
+                History</button>
+            </article>
+          </div>
+        </details>
+
+        <section class="panel reports-panel report-addon-workspace hidden" id="reportAddonWorkspace">
+          <div class="panel-header">
+            <div>
+              <h3 id="reportAddonTitle">Report Tool</h3>
+              <p id="reportAddonText">Select an add-on tool to continue.</p>
+            </div>
+            <div class="button-row" id="reportAddonActions"></div>
+          </div>
+          <div id="reportAddonBody" class="report-addon-body">
+            <div class="empty-state">No add-on selected.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel demo-hidden" id="archive">
+        <section class="panel table-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Saved SATHI Responses</h3>
+              <p>Every successful SATHI response is stored locally so testing data is not lost.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="clearArchiveBtn" type="button">Clear Archive</button>
+              <button class="primary-button" id="refreshArchiveBtn" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="archive-layout">
+            <div class="archive-list" id="archiveList">
+              <div class="empty-state">No saved responses yet.</div>
+            </div>
+            <div class="archive-preview">
+              <div class="preview-title">
+                <span>Saved response detail</span>
+                <button class="copy-button" data-copy="archiveDetail" type="button">Copy</button>
+              </div>
+              <pre id="archiveDetail">Select a saved response.</pre>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="settings">
+        <form class="settings-grid" id="configForm">
+          <section class="panel company-scope-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Company Scope</h3>
+                <p>Select the Tally company first. All SATHI and mapping settings below are saved against this company.
+                </p>
+              </div>
+              <button class="sidebar-test-button inline-test-button" id="testTallySettingsBtn" type="button"
+                data-i18n="testTally">Test Tally</button>
+            </div>
+            <div class="config-group-grid four-col">
+              <label>
+                Tally URL
+                <input name="tallyUrl" type="url" placeholder="http://127.0.0.1:9000">
+              </label>
+              <label>
+                Selected company
+                <input name="tallyCompanyName" type="text" placeholder="Company name">
+              </label>
+              <label>
+                Company list from Tally
+                <select id="companySelect">
+                  <option value="">No company selected</option>
+                </select>
+              </label>
+              <label>
+                Tally timeout ms
+                <input name="tallyTimeoutMs" type="number" min="1000">
+              </label>
+            </div>
+            <div class="config-section-title">Application Look</div>
+            <div class="config-group-grid">
+              <label>
+                App theme
+                <select name="uiTheme" id="uiThemeSelect">
+                  <option value="green">Green theme - agriculture</option>
+                  <option value="blue">Blue theme - classic</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <div class="form-actions">
+            <span id="configNote">Configuration is stored locally in .env.</span>
+            <button class="primary-button" type="submit">Save Configuration</button>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>SATHI Settings</h3>
+                <p>These SATHI values are saved against the selected Tally company.</p>
+              </div>
+            </div>
+            <div class="compact-form">
+              <div class="config-section-title">Portal Access</div>
+              <div class="config-group-grid">
+                <label>
+                  Base URL
+                  <input name="saathiBaseUrl" type="url" placeholder="https://seedtrace.gov.in/inv-apis2">
+                </label>
+                <label>
+                  API key
+                  <input name="saathiApiKey" type="password" placeholder="Leave blank to keep existing key">
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  Client ID
+                  <input name="saathiClientId" type="text">
+                </label>
+                <label>
+                  Client secret
+                  <input name="saathiClientSecret" type="password" placeholder="Leave blank to keep existing secret">
+                </label>
+              </div>
+              <div class="config-section-title">Billing Identity</div>
+              <div class="two-col">
+                <label>
+                  Owner code
+                  <input name="saathiOwnerCode" type="text">
+                </label>
+                <label>
+                  Location code
+                  <input name="saathiLocationCode" type="text">
+                </label>
+              </div>
+              <div class="three-col">
+                <label>
+                  State code
+                  <input name="saathiStateCode" type="text">
+                </label>
+                <label>
+                  Timeout ms
+                  <input name="saathiTimeoutMs" type="number" min="1000">
+                </label>
+                <label>
+                  Retries
+                  <input name="saathiRetryCount" type="number" min="0" max="5">
+                </label>
+              </div>
+              <label>
+                Client secret mode
+                <select name="saathiClientSecretMode">
+                  <option value="plain">Plain secret from SATHI</option>
+                  <option value="sha512">SHA512(password)</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Tally Settings</h3>
+                <p>Keep company selection ready for voucher creation and sync.</p>
+              </div>
+            </div>
+            <div class="compact-form">
+              <div class="config-section-title">Voucher Defaults</div>
+              <div class="mapping-grid">
+                <label>
+                  Purchase voucher type
+                  <input name="tallyVoucherTypeName" type="text" placeholder="Purchase">
+                </label>
+                <label>
+                  Sales voucher type for portal push
+                  <input name="tallySalesVoucherTypeName" type="text" placeholder="Sales">
+                </label>
+              </div>
+              <div class="mapping-grid">
+                <label>
+                  Purchase ledger
+                  <input name="tallyPurchaseLedgerName" type="text" placeholder="Purchase">
+                </label>
+              </div>
+              <div class="config-section-title">Ledger Mapping</div>
+              <div class="mapping-grid">
+                <label>
+                  Party ledger from
+                  <select name="tallyPartyMode">
+                    <option value="sellerName">Seller name</option>
+                    <option value="sellerCode">Seller code</option>
+                  </select>
+                </label>
+                <label>
+                  Godown
+                  <input name="tallyGodownName" type="text" placeholder="Main Location">
+                </label>
+              </div>
+              <div class="config-section-title">Inventory Mapping</div>
+              <div class="mapping-grid">
+                <label>
+                  Stock item from
+                  <select name="tallyStockItemMode">
+                    <option value="varietyName">Variety name</option>
+                    <option value="cropName">Crop name</option>
+                    <option value="lotNum">Lot number</option>
+                  </select>
+                </label>
+                <label>
+                  Quantity basis
+                  <select name="tallyQuantityMode">
+                    <option value="totalBags">Bags from SATHI</option>
+                    <option value="packingQty">Packing quantity</option>
+                    <option value="totalQty">SATHI totalQty</option>
+                  </select>
+                </label>
+                <label>
+                  Tally unit name
+                  <input name="tallyUnitName" type="text" placeholder="Bag">
+                </label>
+              </div>
+              <div class="config-section-title">GST Mapping</div>
+              <div class="mapping-grid">
+                <label>
+                  GST registration
+                  <input name="tallyGstRegistrationName" type="text" placeholder="Company GST registration name">
+                </label>
+                <label>
+                  Company registration type
+                  <input name="tallyCompanyRegistrationType" type="text" placeholder="Regular">
+                </label>
+                <label>
+                  Party registration type
+                  <input name="tallyPartyRegistrationType" type="text" placeholder="Regular">
+                </label>
+                <label>
+                  CGST ledger
+                  <input name="tallyCgstLedgerName" type="text" placeholder="CGST">
+                </label>
+                <label>
+                  SGST ledger
+                  <input name="tallySgstLedgerName" type="text" placeholder="SGST">
+                </label>
+                <label>
+                  IGST ledger
+                  <input name="tallyIgstLedgerName" type="text" placeholder="IGST">
+                </label>
+              </div>
+            </div>
+          </section>
+        </form>
+      </section>
+
+      <section class="tab-panel" id="companyUdfs">
+        <section class="panel company-udf-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Licence Setup</h3>
+              <p>These values are loaded from the selected licence voucher type.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="fetchCompanyUdfsBtn" type="button">Refresh Setup</button>
+            </div>
+          </div>
+
+          <div class="udf-company-strip">
+            <div>
+              <span>Company</span>
+              <strong id="udfCompanyName">No company selected</strong>
+            </div>
+            <div>
+              <span>Selected licence</span>
+              <strong id="udfLicenceName">Not loaded</strong>
+            </div>
+            <div>
+              <span>Purchase voucher type</span>
+              <strong id="udfPurchaseVtype">-</strong>
+            </div>
+            <div>
+              <span>Sales voucher type</span>
+              <strong id="udfSalesVtype">-</strong>
+            </div>
+          </div>
+
+          <div class="udf-table-wrap">
+            <table class="udf-table">
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Value</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="companyUdfRows">
+                <tr>
+                  <td colspan="3" class="empty-cell">Connect Tally and select a licence.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout udf-callout" id="companyUdfNote">
+            Keep the correct licence selected before running SATHI or Tally operations.
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="license">
+        <section class="panel license-management-panel">
+          <div class="panel-header">
+            <div>
+              <h3>License</h3>
+              <p>Activate, verify, or clear the local AR Infotech license for this machine.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="refreshLicenseBtn" type="button">Refresh</button>
+              <button class="danger-button" id="clearLicenseBtn" type="button">Clear License</button>
+            </div>
+          </div>
+
+          <div class="license-status-grid">
+            <div>
+              <span>Status</span>
+              <strong id="licensePanelStatus">Not checked</strong>
+            </div>
+            <div>
+              <span>Valid until</span>
+              <strong id="licensePanelExpiry">-</strong>
+            </div>
+            <div>
+              <span>SATHI licence</span>
+              <strong id="licensePanelNumbers">-</strong>
+            </div>
+            <div>
+              <span>Tally licence</span>
+              <strong id="licensePanelTally">-</strong>
+            </div>
+          </div>
+
+          <div class="license-detail-grid">
+            <label>
+              Machine ID
+              <div class="copy-field">
+                <code id="licensePanelMachineId">-</code>
+                <button class="copy-button" data-copy="licensePanelMachineId" type="button">Copy</button>
+              </div>
+            </label>
+            <label>
+              Current SATHI client
+              <div class="copy-field">
+                <code id="licensePanelClientId">-</code>
+                <button class="copy-button" data-copy="licensePanelClientId" type="button">Copy</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="license-import-row">
+            <input id="licensePanelFileInput" type="file" accept=".lic,.json">
+            <button class="primary-button" id="importLicensePanelBtn" type="button">Import License</button>
+          </div>
+
+          <div class="callout" id="licensePanelMessage">
+            License status has not been checked yet.
+          </div>
+                <div class="available-license-panel">
+        <div class="preview-title">
+          <span>Available SATHI licenses from Tally</span>
+          <button class="secondary-button" id="refreshActivationScopesBtn" type="button">Refresh</button>
+        </div>
+        <div class="available-license-list" id="activationScopeList">
+          <div class="empty-state">Connect Tally to load available SATHI licenses.</div>
+        </div>
+      </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="errors">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>Error Desk</h3>
+              <p>Keep these messages while coordinating with SATHI or Tally support.</p>
+            </div>
+            <div class="button-row">
+              <button class="secondary-button" id="clearErrorsBtn" type="button">Clear Errors</button>
+              <button class="primary-button" id="refreshErrorsPanelBtn" type="button">Refresh</button>
+            </div>
+          </div>
+          <div class="error-list" id="errorList">
+            <div class="empty-state">No errors recorded.</div>
+          </div>
+        </section>
+      </section>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    </main>
+
+    <aside class="sidebar-r">
+      <div class="top-scope-bar" aria-label="Active scope">
+        <div class="licence-activated-span" id="licence-activated-span" aria-live="polite">
+          <span>License status</span>
+          <strong id="sidebarLicenseStatus">Checking...</strong>
+          <small id="sidebarLicenseMeta">Verifying local license.</small>
+        </div>
+        <div>
+          <span>Company</span>
+          <strong id="topScopeCompany">No company selected</strong>
+        </div>
+        <div>
+          <span>Licence</span>
+          <select id="topLicenceScopeSelect" class="top-licence-select">
+            <option value="">Not loaded</option>
+          </select>
+        </div>
+        <div>
+          <span>Tally SNo</span>
+          <strong id="topTallyLicence">-</strong>
+        </div>
+        <div>
+          <span>Voucher types</span>
+          <strong id="topScopeVtypes">-</strong>
+        </div>
+      </div>
+      <div class="sidebar-company">
+        <div class="mini-label" data-i18n="activeCompany">Active company</div>
+        <strong id="sidebarCompanyName">No company selected</strong>
+        <span id="sidebarTallyUrl">http://127.0.0.1:9000</span>
+        <label class="sidebar-scope-select">
+          <span>Active licence</span>
+          <select id="licenceScopeSelect">
+            <option value="">Connect Tally first</option>
+          </select>
+        </label>
+        <small id="licenceScopeNote">Licence scope not loaded.</small>
+        <small id="tallyNote">Tally status not checked.</small>
+        <button class="sidebar-test-button" id="testTallyBtn" type="button" data-i18n="testTally">Test Tally</button>
+      </div>
+    </aside>
+  </div>
+  <datalist id="tallyStockItemsList"></datalist>
+  <script src="/app.js"></script>
+</body>
+
+</html>
