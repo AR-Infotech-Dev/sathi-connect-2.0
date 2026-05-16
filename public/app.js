@@ -10,6 +10,7 @@ const state = {
   portalSalesEntries: [],
   expandedPortalSale: "",
   expandedOrder: "",
+  
   reports: {
     active: "purchase",
     expandedKey: "",
