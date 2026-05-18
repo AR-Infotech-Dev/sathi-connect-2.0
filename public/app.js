@@ -10,7 +10,6 @@ const state = {
   portalSalesEntries: [],
   expandedPortalSale: "",
   expandedOrder: "",
-  
   reports: {
     active: "purchase",
     expandedKey: "",
@@ -49,6 +48,7 @@ let currentLanguage = loadSavedLanguage();
 let currentTheme = loadSavedTheme();
 let apiProgressTimer = null;
 let apiProgressShownAt = 0;
+let activeApiRequests = 0;
 applyTheme(currentTheme);
 
 const mrText = {
@@ -624,6 +624,9 @@ function bindActions() {
   });
   document.getElementById("importLicensePanelBtn")?.addEventListener("click", () => activateLicenseFromFile("licensePanelFileInput"));
   document.getElementById("clearLicenseBtn")?.addEventListener("click", clearLicense);
+  document.getElementById("showActivationRequestBtn")?.addEventListener("click", showActivationRequestForm);
+  document.getElementById("cancelActivationRequestBtn")?.addEventListener("click", hideActivationRequestForm);
+  document.getElementById("activationRequestForm")?.addEventListener("submit", sendActivationRequest);
   document.getElementById("refreshActivationScopesBtn")?.addEventListener("click", () => loadLicenceScopes({ silent: false }));
   document.getElementById("refreshArchiveBtn").addEventListener("click", loadArchive);
   document.getElementById("clearArchiveBtn").addEventListener("click", clearArchive);
@@ -1732,7 +1735,7 @@ function renderOrders() {
     const bill = findBillForOrder(order);
     const tallyStatus = state.tallyStatuses[order.voucherNumber] || "Pending for Tally";
     const mappingStatus = bill ? mappingStatusForBill(bill) : { label: t("lotMissing", "Lot missing"), className: "status-pill status-warn" };
-    const pushDisabled = tallyStatus === "Found in Tally" || tallyStatus === "Verified in Tally" || tallyStatus === "Push warning";
+    const pushDisabled = tallyStatus === "Found in Tally" || tallyStatus === "Verified in Tally" || tallyStatus === "Pushed to Tally";
     const expanded = state.expandedOrder === order.voucherNumber;
     return `
     <tr class="order-main-row ${expanded ? "active-order" : ""}" data-order-index="${index}">
@@ -1755,7 +1758,7 @@ function renderOrders() {
       <td>
         <div class="row-actions">
           <button class="mini-button" data-action="check" data-order-index="${index}" type="button">${escapeHtml(t("status", "Status"))}</button>
-          <button class="mini-button primary-mini" data-action="push" data-order-index="${index}" type="button" ${pushDisabled ? "disabled" : ""}>${escapeHtml(pushButtonLabel(tallyStatus))}</button>
+          <button class="mini-button primary-mini" data-action="push" data-order-index="${index}" type="button" ${pushDisabled ? "disabled" : ""}>${escapeHtml(pushDisabled ? t("synced", "Synced") : t("push", "Push"))}</button>
         </div>
       </td>
     </tr>
@@ -1931,7 +1934,7 @@ async function checkTallyStatus(order) {
   try {
     const result = await api("/api/tally/voucher-status", {
       method: "POST",
-      body: { companyName: selectedCompanyName(), voucherNumber: order.voucherNumber, scope: activeScopePayload() }
+      body: { voucherNumber: order.voucherNumber }
     });
     state.tallyStatuses[order.voucherNumber] = result.exists ? "Found in Tally" : "Pending for Tally";
     state.tallyResults[order.voucherNumber] = {
@@ -1992,7 +1995,7 @@ async function pushOrderToTally(order) {
   try {
     const result = await api("/api/tally/push-voucher", {
       method: "POST",
-      body: { companyName: selectedCompanyName(), bill, itemMappings, scope: activeScopePayload() }
+      body: { bill, itemMappings, scope: activeScopePayload() }
     });
     state.tallyStatuses[order.voucherNumber] = result.alreadyExists ? "Found in Tally" : resolvePushStatus(result);
     state.tallyResults[order.voucherNumber] = {
@@ -2029,29 +2032,24 @@ async function pushOrderToTally(order) {
 async function pushAllPendingToTally() {
   for (const order of state.orders.filter(belongsToActiveLicence)) {
     const status = state.tallyStatuses[order.voucherNumber] || "Pending for Tally";
-    if (!["Found in Tally", "Verified in Tally", "Push warning"].includes(status)) {
+    if (!["Found in Tally", "Verified in Tally", "Pushed to Tally"].includes(status)) {
       await pushOrderToTally(order);
     }
   }
 }
 
 function tallyStatusClass(status) {
-  if (status === "Found in Tally" || status === "Verified in Tally") return "status-pill status-ok";
+  if (status === "Found in Tally" || status === "Verified in Tally" || status === "Pushed to Tally") return "status-pill status-ok";
   if (status === "Pushing..." || status === "Checking...") return "status-pill status-busy";
   if (status === "Check failed" || status === "Push warning") return "status-pill status-warn";
   return "status-pill";
-}
-
-function pushButtonLabel(tallyStatus) {
-  if (tallyStatus === "Found in Tally" || tallyStatus === "Verified in Tally") return t("synced", "Synced");
-  if (tallyStatus === "Push warning") return t("checkFirst", "Check");
-  return t("push", "Push");
 }
 
 function formatTallyStatus(status) {
   const labels = {
     "Found in Tally": t("foundInTally", "Found in Tally"),
     "Verified in Tally": t("verifiedInTally", "Verified in Tally"),
+    "Pushed to Tally": t("pushedToTally", "Pushed to Tally"),
     "Pending for Tally": t("pendingForTally", "Pending for Tally"),
     "Checking...": t("checking", "Checking..."),
     "Pushing...": t("pushing", "Pushing..."),
@@ -2063,7 +2061,7 @@ function formatTallyStatus(status) {
 
 function resolvePushStatus(result) {
   if (result.imported && result.verification?.exists) return "Verified in Tally";
-  if (result.imported) return "Push warning";
+  if (result.imported) return "Pushed to Tally";
   return "Push warning";
 }
 
@@ -3117,7 +3115,7 @@ function latestTallyLogForVoucher(voucherNumber) {
 
 function displayTallyLogStatus(status) {
   if (status === "pushed-and-verified") return "Verified in Tally";
-  if (status === "pushed-not-verified") return "Push warning";
+  if (status === "pushed-not-verified") return "Pushed to Tally";
   if (status === "found") return "Found in Tally";
   if (status === "not-found") return "Pending for Tally";
   if (status === "skipped-existing") return "Found in Tally";
@@ -3227,6 +3225,7 @@ function updateCompanyOptions(companies, selected) {
 function updateSidebarCompany(companyName, tallyUrl) {
   document.getElementById("sidebarCompanyName").textContent = companyName || "No company selected";
   document.getElementById("sidebarTallyUrl").textContent = tallyUrl || "http://127.0.0.1:9000";
+  syncActivationRequestAutoFields();
   updateTopScopeBar();
 }
 
@@ -3237,10 +3236,78 @@ function updateTopScopeBar() {
   if (topSelect && scopeLicenceCode(scope)) topSelect.value = scopeLicenceCode(scope);
   setText("topTallyLicence", currentTallySerialNumber() || "-");
   setText("topScopeVtypes", scope ? `${scope.purchaseVoucherTypeName || "Purchase"} -> ${scopeSalesVoucherTypeLabel(scope) || "Sales not mapped"}` : "-");
+  syncActivationRequestAutoFields();
 }
 
 function currentTallySerialNumber() {
   return state.tallySerialNumber || state.license?.tallyLicenseNumber || state.license?.license?.tallyLicense || "";
+}
+
+function currentSathiLicenceNumber() {
+  const licenseText = licenseNumberText(state.license || {});
+  if (licenseText && licenseText !== "-") return licenseText;
+  return scopeLicenceCode(activeLicenceScope()) || state.config?.saathi?.clientId || "";
+}
+
+function currentSathiLicenceNumbers() {
+  const license = state.license || {};
+  const values = Array.isArray(license.licenseNumbers) && license.licenseNumbers.length
+    ? license.licenseNumbers
+    : currentSathiLicenceNumber().split(",");
+  const scopeValues = state.licenceScopes.map(scopeLicenceCode);
+  return [...new Set([...values, ...scopeValues].map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function syncActivationRequestAutoFields() {
+  setValue("activationCompanyName", document.getElementById("activationCompanyName")?.value || selectedCompanyName());
+  renderActivationSathiLicenceOptions();
+  setValue("activationTallySerialNumber", currentTallySerialNumber());
+}
+
+function renderActivationSathiLicenceOptions() {
+  const target = document.getElementById("activationSathiLicenceOptions");
+  if (!target) return;
+
+  const selected = new Set(getSelectedActivationLicences());
+  const numbers = currentSathiLicenceNumbers();
+  target.innerHTML = numbers.length
+    ? numbers.map((number) => {
+      const checked = selected.size ? selected.has(number) : number === currentSathiLicenceNumber();
+      return `
+        <label>
+          <input type="checkbox" value="${escapeHtml(number)}" ${checked ? "checked" : ""}>
+          ${escapeHtml(number)}
+        </label>
+      `;
+    }).join("")
+    : "<span>No SATHI licence loaded.</span>";
+
+  target.querySelectorAll("input[type='checkbox']").forEach((input) => {
+    input.addEventListener("change", syncSelectedActivationLicences);
+  });
+  syncSelectedActivationLicences();
+}
+
+function getSelectedActivationLicences() {
+  return [...document.querySelectorAll("#activationSathiLicenceOptions input[type='checkbox']:checked")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+}
+
+function syncSelectedActivationLicences() {
+  setValue("activationSathiLicence", getSelectedActivationLicences().join(", "));
+}
+
+function showActivationRequestForm() {
+  syncActivationRequestAutoFields();
+  document.getElementById("licenseActivationView")?.classList.add("hidden");
+  document.getElementById("activationRequestForm")?.classList.remove("hidden");
+  window.setTimeout(() => document.getElementById("activationCustomerName")?.focus(), 0);
+}
+
+function hideActivationRequestForm() {
+  document.getElementById("activationRequestForm")?.classList.add("hidden");
+  document.getElementById("licenseActivationView")?.classList.remove("hidden");
 }
 
 function compactError(message) {
@@ -3269,27 +3336,44 @@ function extractApiMessage(message) {
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  showGlobalLoadingBar();
+  try {
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
 
-  const data = await response.json();
-  if (!response.ok || data.ok === false) {
-    if (data.license) {
-      state.license = data.license;
-      renderLicenseState();
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      if (data.license) {
+        state.license = data.license;
+        renderLicenseState();
+      }
+      const error = new Error(data.error?.message || data.message || "Request failed");
+      error.license = data.license || null;
+      error.isLicenseError = Boolean(data.license);
+      throw error;
     }
-    const error = new Error(data.error?.message || data.message || "Request failed");
-    error.license = data.license || null;
-    error.isLicenseError = Boolean(data.license);
-    throw error;
-  }
 
-  return data;
+    return data;
+  } finally {
+    hideGlobalLoadingBar();
+  }
+}
+
+function showGlobalLoadingBar() {
+  activeApiRequests += 1;
+  document.getElementById("globalLoadingBar")?.classList.remove("hidden");
+}
+
+function hideGlobalLoadingBar() {
+  activeApiRequests = Math.max(0, activeApiRequests - 1);
+  if (activeApiRequests === 0) {
+    document.getElementById("globalLoadingBar")?.classList.add("hidden");
+  }
 }
 
 async function copyElementText(id) {
@@ -3426,7 +3510,6 @@ function renderLicenseState(options = {}) {
   sidebarLicenseStatus?.classList.toggle("active", active);
   sidebarLicenseStatus?.classList.toggle("expired", !active && expired);
 
-  setText("licenseMachineId", license.machineId || "-");
   setText("licenseTallyNumber", license.tallyLicenseNumber || "-");
   renderLicenseScopeChips(license);
   setText("sidebarLicenseStatus", active ? "Active" : expired ? "Expired" : "Not activated");
@@ -3440,7 +3523,6 @@ function renderLicenseState(options = {}) {
   setText("licensePanelExpiry", license.expiresAt || "-");
   setText("licensePanelNumbers", licenseNumberText(license));
   setText("licensePanelTally", license.tallyLicenseNumber || "-");
-  setText("licensePanelMachineId", license.machineId || "-");
   setText("licensePanelClientId", license.saathiClientId || "-");
   setText("licensePanelMessage", license.message || (active ? "License is active." : "Import a valid license file to continue."));
   document.getElementById("licensePanelStatus")?.classList.toggle("success", active);
@@ -3456,6 +3538,7 @@ function renderLicenseState(options = {}) {
 
   setText("licenseScreenTitle", expired ? "License expired" : active ? "License active" : "License not activated");
   setText("licenseScreenText", license.message || "Import a valid license file to continue.");
+  syncActivationRequestAutoFields();
   updateTopScopeBar();
 }
 
@@ -3500,6 +3583,62 @@ async function activateLicenseFromFile(inputId = "licenseFileInput") {
     setText("licenseScreenText", error.message || "License activation failed.");
     showToast(error.message || "License activation failed.");
   }
+}
+
+async function sendActivationRequest(event) {
+  event.preventDefault();
+  syncActivationRequestAutoFields();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form).entries());
+  const button = form.querySelector("button[type='submit']");
+  if (!validateActivationRequest(body)) return;
+
+  button.disabled = true;
+  setText("activationRequestMessage", "Sending activation request...");
+  try {
+    const result = await api("/api/license/activation-request", {
+      method: "POST",
+      body
+    });
+    setText("activationRequestMessage", result.message || "Activation request sent.");
+    showToast("Activation request sent.");
+    form.reset();
+    syncActivationRequestAutoFields();
+    hideActivationRequestForm();
+  } catch (error) {
+    setText("activationRequestMessage", error.message || "Activation request failed.");
+    showToast(error.message || "Activation request failed.");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function validateActivationRequest(body = {}) {
+  const requiredFields = [
+    ["customerName", "Enter customer name."],
+    ["companyName", "Enter company name."],
+    ["email", "Enter customer email."],
+    ["phone", "Enter phone number."],
+    ["sathiLicence", "SATHI licence is not available."]
+  ];
+  for (const [key, message] of requiredFields) {
+    if (!String(body[key] || "").trim()) {
+      setText("activationRequestMessage", message);
+      showToast(message);
+      return false;
+    }
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email || "").trim())) {
+    setText("activationRequestMessage", "Enter a valid email address.");
+    showToast("Enter a valid email address.");
+    return false;
+  }
+  if (!/^[+\d][\d\s()+-]{6,}$/.test(String(body.phone || "").trim())) {
+    setText("activationRequestMessage", "Enter a valid phone number.");
+    showToast("Enter a valid phone number.");
+    return false;
+  }
+  return true;
 }
 
 async function clearLicense() {

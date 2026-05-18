@@ -4,7 +4,7 @@ Copy this folder into another Node/Electron app and wire it to that app's server
 
 ## Files
 
-- `license-core.js` - verification, import, clear, expiry, machine ID, Tally license check, clock rollback guard.
+- `license-core.js` - verification, import, clear, expiry, Tally license check, clock rollback guard.
 - `debug-log.js` - JSON-line logger for `logs/server.log`.
 - `node-http-routes.js` - optional plain Node HTTP routes.
 - `browser-license-client.js` - optional browser helper for status/import/clear.
@@ -103,7 +103,6 @@ The encrypted payload should include:
 
 ```json
 {
-  "machineId": "machine hash",
   "licenseNumber": "SATHI1,SATHI2",
   "tallyLicense": "755791371",
   "startDate": "2026-05-15",

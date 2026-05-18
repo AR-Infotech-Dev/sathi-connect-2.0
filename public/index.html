@@ -17,12 +17,6 @@
       <p id="licenseScreenText">Import a valid license file to continue.</p>
 
       <div>
-        <strong>Machine ID</strong>
-        <code id="licenseMachineId">-</code>
-        <button class="copy-button" data-copy="licenseMachineId" type="button">Copy</button>
-      </div>
-
-      <div>
         <strong>Tally license</strong>
         <code id="licenseTallyNumber">-</code>
       </div>
@@ -135,6 +129,10 @@
       </div>
     </header>
 
+    <div class="global-loading-bar hidden" id="globalLoadingBar" aria-hidden="true">
+      <div class="global-loading-track"></div>
+    </div>
+
     <main class="main">
       <div class="license-banner hidden" id="licenseBanner">
         <strong id="licenseBannerTitle">License not activated</strong>
@@ -244,7 +242,7 @@
                     <small>Marks order received on SATHI.</small>
                     <em>Open</em>
                   </button>
-                  <button class="api-action-button" data-api-action="createOrder" type="button">
+                  <button class="api-action-button demo-hidden" data-api-action="createOrder" type="button">
                     <span>4</span>
                     <strong>Create SATHI order</strong>
                     <small>Testing tool for create order API.</small>
@@ -281,7 +279,7 @@
                   </select>
                 </label>
 
-                <label class="create-order-json">
+                <label class="create-order-json demo-hidden">
                   <span data-i18n="createOrderJson">Create order JSON</span>
                   <textarea id="createOrderJson" spellcheck="false"></textarea>
                 </label>
@@ -295,7 +293,7 @@
             </div>
           </div>
 
-          <section class="request-preview-panel">
+          <section class="request-preview-panel demo-hidden">
             <div class="request-preview-head">
               <div>
                 <h3 data-i18n="signedPreviewTitle">Signed request preview</h3>
@@ -337,7 +335,7 @@
             </div>
           </section>
 
-          <div class="response-console">
+          <div class="response-console demo-hidden">
             <div class="preview-title">
               <span data-i18n="lastResponse">Last response / error</span>
               <button class="copy-button" data-copy="lastResponse" type="button" data-i18n="copy">Copy</button>
@@ -346,7 +344,7 @@
           </div>
         </details>
 
-        <div class="work-grid single-column">
+        <div class="work-grid single-column demo-hidden">
           <section class="panel">
             <div class="panel-header">
               <div>
@@ -1104,70 +1102,114 @@
 
       <section class="tab-panel" id="license">
         <section class="panel license-management-panel">
-          <div class="panel-header">
-            <div>
-              <h3>License</h3>
-              <p>Activate, verify, or clear the local AR Infotech license for this machine.</p>
-            </div>
-            <div class="button-row">
-              <button class="secondary-button" id="refreshLicenseBtn" type="button">Refresh</button>
-              <button class="danger-button" id="clearLicenseBtn" type="button">Clear License</button>
-            </div>
-          </div>
 
-          <div class="license-status-grid">
-            <div>
-              <span>Status</span>
-              <strong id="licensePanelStatus">Not checked</strong>
-            </div>
-            <div>
-              <span>Valid until</span>
-              <strong id="licensePanelExpiry">-</strong>
-            </div>
-            <div>
-              <span>SATHI licence</span>
-              <strong id="licensePanelNumbers">-</strong>
-            </div>
-            <div>
-              <span>Tally licence</span>
-              <strong id="licensePanelTally">-</strong>
-            </div>
-          </div>
-
-          <div class="license-detail-grid">
-            <label>
-              Machine ID
-              <div class="copy-field">
-                <code id="licensePanelMachineId">-</code>
-                <button class="copy-button" data-copy="licensePanelMachineId" type="button">Copy</button>
+          <div id="licenseActivationView">
+            <div class="panel-header">
+              <div>
+                <h3>License</h3>
+                <p>Activate, verify, or clear the local license for this machine.</p>
               </div>
-            </label>
-            <label>
-              Current SATHI client
-              <div class="copy-field">
-                <code id="licensePanelClientId">-</code>
-                <button class="copy-button" data-copy="licensePanelClientId" type="button">Copy</button>
+              <div class="button-row">
+                <button class="primary-button" id="showActivationRequestBtn" type="button">Send Activation
+                  Request</button>
+                <button class="secondary-button" id="refreshLicenseBtn" type="button">Refresh</button>
+                <button class="danger-button" id="clearLicenseBtn" type="button">Clear License</button>
               </div>
-            </label>
-          </div>
+            </div>
+            <div class="license-status-grid">
+              <div>
+                <span>Status</span>
+                <strong id="licensePanelStatus">Not checked</strong>
+              </div>
+              <div>
+                <span>Valid until</span>
+                <strong id="licensePanelExpiry">-</strong>
+              </div>
+              <div>
+                <span>SATHI licence</span>
+                <strong id="licensePanelNumbers">-</strong>
+              </div>
+              <div>
+                <span>Tally licence</span>
+                <strong id="licensePanelTally">-</strong>
+              </div>
+            </div>
 
-          <div class="license-import-row">
-            <input id="licensePanelFileInput" type="file" accept=".lic,.json">
-            <button class="primary-button" id="importLicensePanelBtn" type="button">Import License</button>
-          </div>
+            <div class="license-detail-grid">
+              <label>
+                Current SATHI client
+                <div class="copy-field">
+                  <code id="licensePanelClientId">-</code>
+                  <button class="copy-button" data-copy="licensePanelClientId" type="button">Copy</button>
+                </div>
+              </label>
+            </div>
 
-          <div class="callout" id="licensePanelMessage">
-            License status has not been checked yet.
+            <div class="license-import-row">
+              <input id="licensePanelFileInput" type="file" accept=".lic,.json">
+              <button class="primary-button" id="importLicensePanelBtn" type="button">Import License</button>
+            </div>
+            <div class="callout" id="licensePanelMessage">
+              License status has not been checked yet.
+            </div>
+            <div class="available-license-panel">
+              <div class="preview-title">
+                <span>Available SATHI licenses from Tally</span>
+                <button class="secondary-button" id="refreshActivationScopesBtn" type="button">Refresh</button>
+              </div>
+              <div class="available-license-list" id="activationScopeList">
+                <div class="empty-state">Connect Tally to load available SATHI licenses.</div>
+              </div>
+            </div>
           </div>
-                <div class="available-license-panel">
-        <div class="preview-title">
-          <span>Available SATHI licenses from Tally</span>
-          <button class="secondary-button" id="refreshActivationScopesBtn" type="button">Refresh</button>
-        </div>
-        <div class="available-license-list" id="activationScopeList">
-          <div class="empty-state">Connect Tally to load available SATHI licenses.</div>
-        </div>
-      </div>
+          <form class="activation-request-form hidden" id="activationRequestForm">
+            <div class="panel-header">
+              <div>
+                <h3>Activation request</h3>
+                <p>Send activation request to get a license for the selected Tally and SATHI licence.</p>
+              </div>
+              <div class="button-row">
+                <button class="secondary-button" id="cancelActivationRequestBtn" type="button">Cancel</button>
+                <button class="primary-button" type="submit">Submit Request</button>
+              </div>
+            </div>
+            <div class="activation-request-grid">
+              <label>
+                Customer name
+                <input id="activationCustomerName" name="customerName" type="text" autocomplete="name" required>
+              </label>
+              <label>
+                Company name
+                <input id="activationCompanyName" name="companyName" type="text" autocomplete="organization" required>
+              </label>
+              <label>
+                Email
+                <input id="activationEmail" name="email" type="email" autocomplete="email" required>
+              </label>
+              <label>
+                Phone number
+                <input id="activationPhone" name="phone" type="tel" autocomplete="tel" required>
+              </label>
+              <label class="activation-license-picker">
+                SATHI licence
+                <input id="activationSathiLicence" name="sathiLicence" type="hidden" required>
+                <div class="activation-license-options" id="activationSathiLicenceOptions">
+                  <span>No SATHI licence loaded.</span>
+                </div>
+              </label>
+              <label>
+                Tally serial number
+                <input id="activationTallySerialNumber" name="tallySerialNumber" type="text" readonly>
+              </label>
+              <label>
+                Reference ID <span>Optional</span>
+                <input id="activationReferenceId" name="referenceId" type="text">
+              </label>
+            </div>
+            <div class="callout" id="activationRequestMessage">
+              Fill customer details and send an activation request.
+            </div>
+          </form>
         </section>
       </section>
 
