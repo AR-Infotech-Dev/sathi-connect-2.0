@@ -236,6 +236,28 @@ export class TallyClient {
       ...mapping,
       stockUnitOverrides: Object.fromEntries((masterResult.items || []).map((item) => [item.name, item.unitName]).filter(([, unitName]) => unitName))
     };
+    const discountAmount = resolveDiscountAmount(bill);
+    if (discountAmount > 0 && !mappingWithMasters.discountLedgerName) {
+      mappingWithMasters.discountLedgerName = await this.findSathiDiscountLedger(companyName).catch(() => "");
+    }
+    if (discountAmount > 0 && !mappingWithMasters.discountLedgerName) {
+      return {
+        imported: false,
+        summary: {
+          created: 0,
+          altered: 0,
+          deleted: 0,
+          errors: 1,
+          lineErrors: ["Discount is present, but no Tally discount ledger with SATHI in Narration/Description was found."],
+          lastVoucher: "",
+          lastMaster: ""
+        },
+        masterResult,
+        lineErrors: ["Discount is present, but no Tally discount ledger with SATHI in Narration/Description was found."],
+        response: "",
+        xmlPreview: ""
+      };
+    }
     const xml = purchaseVoucherEnvelope(companyName, bill, mappingWithMasters);
     const response = await this.request(xml);
     const summary = parseImportSummary(response);
@@ -247,6 +269,11 @@ export class TallyClient {
       response,
       xmlPreview: xml.slice(0, 4000)
     };
+  }
+
+  async findSathiDiscountLedger(companyName) {
+    const response = await this.request(sathiDiscountLedgerEnvelope(companyName));
+    return parseSathiDiscountLedgerName(response);
   }
 
   async ensureInventoryMasters(companyName, bill, mapping = {}) {
@@ -1006,6 +1033,8 @@ function purchaseVoucherEnvelope(companyName, bill, mapping = {}) {
   const effectiveDate = date;
   const entries = (bill.lotData || []).map((lot) => inventoryEntryXml(lot, bill, mapping)).join("");
   const taxTotals = totalTaxAmounts(bill);
+  const discountAmount = resolveDiscountAmount(bill);
+  const discountLedgerName = discountAmount > 0 ? mapping.discountLedgerName || "" : "";
   const partyAmount = amount(Number(bill.totalBillPrice || 0) + taxTotals.cgst + taxTotals.sgst + taxTotals.igst);
   const placeOfSupply = bill.stateName || "Maharashtra";
   const country = "India";
@@ -1092,6 +1121,7 @@ function purchaseVoucherEnvelope(companyName, bill, mapping = {}) {
             <INVOICEEXPORTLIST.LIST>      </INVOICEEXPORTLIST.LIST>
             ${entries}
             ${partyLedgerEntry(partyLedger, partyAmount, voucherNumber, date)}
+            ${discountLedgerName ? discountLedgerEntry(discountLedgerName, discountAmount) : ""}
             ${taxTotals.cgst > 0 ? ledgerEntry(mapping.cgstLedgerName || "CGST", -taxTotals.cgst) : ""}
             ${taxTotals.sgst > 0 ? ledgerEntry(mapping.sgstLedgerName || "SGST", -taxTotals.sgst) : ""}
             ${taxTotals.igst > 0 ? ledgerEntry(mapping.igstLedgerName || "IGST", -taxTotals.igst) : ""}
@@ -1232,13 +1262,13 @@ function inventoryEntryXml(lot, bill, mapping) {
 }
 
 function partyLedgerEntry(party, amountValue, referenceNumber, referenceDate) {
-  const creditAmount = `-${String(amountValue || "0").replace(/^-/, "")}`;
+  const creditAmount = String(amountValue || "0").replace(/^-/, "");
   return `
             <LEDGERENTRIES.LIST>
               <OLDAUDITENTRYIDS.LIST TYPE="Number"><OLDAUDITENTRYIDS>-1</OLDAUDITENTRYIDS></OLDAUDITENTRYIDS.LIST>
               <LEDGERNAME>${escapeXml(party)}</LEDGERNAME>
               <GSTCLASS>Not Applicable</GSTCLASS>
-              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
               <LEDGERFROMITEM>No</LEDGERFROMITEM>
               <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>
               <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
@@ -1248,7 +1278,7 @@ function partyLedgerEntry(party, amountValue, referenceNumber, referenceDate) {
               <STRDGSTISPARTYLEDGER>No</STRDGSTISPARTYLEDGER>
               <STRDGSTISDUTYLEDGER>No</STRDGSTISDUTYLEDGER>
               <CONTENTNEGISPOS>No</CONTENTNEGISPOS>
-              <ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE>
+              <ISLASTDEEMEDPOSITIVE>No</ISLASTDEEMEDPOSITIVE>
               <AMOUNT>${creditAmount}</AMOUNT>
               <SERVICETAXDETAILS.LIST>       </SERVICETAXDETAILS.LIST>
               <BANKALLOCATIONS.LIST>       </BANKALLOCATIONS.LIST>
@@ -1260,6 +1290,74 @@ function partyLedgerEntry(party, amountValue, referenceNumber, referenceDate) {
                 <INTERESTCOLLECTION.LIST>        </INTERESTCOLLECTION.LIST>
                 <STBILLCATEGORIES.LIST>        </STBILLCATEGORIES.LIST>
               </BILLALLOCATIONS.LIST>
+              <INTERESTCOLLECTION.LIST>       </INTERESTCOLLECTION.LIST>
+              <OLDAUDITENTRIES.LIST>       </OLDAUDITENTRIES.LIST>
+              <ACCOUNTAUDITENTRIES.LIST>       </ACCOUNTAUDITENTRIES.LIST>
+              <AUDITENTRIES.LIST>       </AUDITENTRIES.LIST>
+              <INPUTCRALLOCS.LIST>       </INPUTCRALLOCS.LIST>
+              <DUTYHEADDETAILS.LIST>       </DUTYHEADDETAILS.LIST>
+              <EXCISEDUTYHEADDETAILS.LIST>       </EXCISEDUTYHEADDETAILS.LIST>
+              <RATEDETAILS.LIST>       </RATEDETAILS.LIST>
+              <SUMMARYALLOCS.LIST>       </SUMMARYALLOCS.LIST>
+              <CENVATDUTYALLOCATIONS.LIST>       </CENVATDUTYALLOCATIONS.LIST>
+              <STPYMTDETAILS.LIST>       </STPYMTDETAILS.LIST>
+              <EXCISEPAYMENTALLOCATIONS.LIST>       </EXCISEPAYMENTALLOCATIONS.LIST>
+              <TAXBILLALLOCATIONS.LIST>       </TAXBILLALLOCATIONS.LIST>
+              <TAXOBJECTALLOCATIONS.LIST>       </TAXOBJECTALLOCATIONS.LIST>
+              <TDSEXPENSEALLOCATIONS.LIST>       </TDSEXPENSEALLOCATIONS.LIST>
+              <VATSTATUTORYDETAILS.LIST>       </VATSTATUTORYDETAILS.LIST>
+              <COSTTRACKALLOCATIONS.LIST>       </COSTTRACKALLOCATIONS.LIST>
+              <REFVOUCHERDETAILS.LIST>       </REFVOUCHERDETAILS.LIST>
+              <INVOICEWISEDETAILS.LIST>       </INVOICEWISEDETAILS.LIST>
+              <VATITCDETAILS.LIST>       </VATITCDETAILS.LIST>
+              <ADVANCETAXDETAILS.LIST>       </ADVANCETAXDETAILS.LIST>
+              <TAXTYPEALLOCATIONS.LIST>       </TAXTYPEALLOCATIONS.LIST>
+            </LEDGERENTRIES.LIST>`;
+}
+
+function parseSathiDiscountLedgerName(xml) {
+  const regex = /<LEDGER\b([^>]*)>([\s\S]*?)<\/LEDGER>/gi;
+  let match;
+
+  while ((match = regex.exec(xml)) !== null) {
+    const block = match[2];
+    const name = decodeXml(attributeValue(match[1], "NAME") || extractTagValues(block, "NAME")[0] || "").trim();
+    const narration = [
+      ...extractTagValues(block, "NARRATION"),
+      ...extractTagValues(block, "DESCRIPTION"),
+      ...extractTagValues(block, "NOTES")
+    ].join(" ");
+    if (name && /\bSATHI\b/i.test(narration)) return name;
+  }
+
+  return "";
+}
+
+function discountLedgerEntry(ledgerName, amountValue) {
+  const discountAmount = String(amount(amountValue)).replace(/^-/, "");
+  return `
+            <LEDGERENTRIES.LIST>
+              <OLDAUDITENTRYIDS.LIST TYPE="Number"><OLDAUDITENTRYIDS>-1</OLDAUDITENTRYIDS></OLDAUDITENTRYIDS.LIST>
+              <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+              <GSTCLASS>Not Applicable</GSTCLASS>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <LEDGERFROMITEM>No</LEDGERFROMITEM>
+              <REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>
+              <ISPARTYLEDGER>No</ISPARTYLEDGER>
+              <GSTOVERRIDDEN>No</GSTOVERRIDDEN>
+              <ISGSTASSESSABLEVALUEOVERRIDDEN>No</ISGSTASSESSABLEVALUEOVERRIDDEN>
+              <STRDISGSTAPPLICABLE>No</STRDISGSTAPPLICABLE>
+              <STRDGSTISPARTYLEDGER>No</STRDGSTISPARTYLEDGER>
+              <STRDGSTISDUTYLEDGER>No</STRDGSTISDUTYLEDGER>
+              <CONTENTNEGISPOS>No</CONTENTNEGISPOS>
+              <ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE>
+              <ISCAPVATTAXALTERED>No</ISCAPVATTAXALTERED>
+              <ISCAPVATNOTCLAIMED>No</ISCAPVATNOTCLAIMED>
+              <AMOUNT>${discountAmount}</AMOUNT>
+              <VATEXPAMOUNT>${discountAmount}</VATEXPAMOUNT>
+              <SERVICETAXDETAILS.LIST>       </SERVICETAXDETAILS.LIST>
+              <BANKALLOCATIONS.LIST>       </BANKALLOCATIONS.LIST>
+              <BILLALLOCATIONS.LIST>       </BILLALLOCATIONS.LIST>
               <INTERESTCOLLECTION.LIST>       </INTERESTCOLLECTION.LIST>
               <OLDAUDITENTRIES.LIST>       </OLDAUDITENTRIES.LIST>
               <ACCOUNTAUDITENTRIES.LIST>       </ACCOUNTAUDITENTRIES.LIST>
@@ -1298,6 +1396,11 @@ function ledgerEntry(ledgerName, amountValue) {
               <AMOUNT>${amount(amountValue)}</AMOUNT>
               <BILLALLOCATIONS.LIST>       </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>`;
+}
+
+function resolveDiscountAmount(bill = {}) {
+  const value = Number(bill.discount || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function buyerAddressXml(bill) {
@@ -1783,6 +1886,35 @@ function licenseInfoEnvelope(parameter) {
       <FUNCPARAMLIST>
         <PARAM>${escapeXml(parameter)}</PARAM>
       </FUNCPARAMLIST>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+function sathiDiscountLedgerEnvelope(companyName) {
+  const companyBlock = companyName ? `<SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : "";
+  return `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>SATHI Discount Ledgers</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        ${companyBlock}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="SATHI Discount Ledgers" ISMODIFY="No">
+            <TYPE>Ledger</TYPE>
+            <FETCH>Name,Parent,Narration,Description,Notes</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
     </DESC>
   </BODY>
 </ENVELOPE>`;

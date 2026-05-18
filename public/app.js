@@ -22,6 +22,8 @@ const state = {
   licenceScopes: [],
   activeScopeClientId: "",
   tallySerialNumber: "",
+  machineId: "",
+  machineIdSource: "",
   errors: [],
   archive: [],
   preview: null,
@@ -627,6 +629,16 @@ function bindActions() {
   document.getElementById("showActivationRequestBtn")?.addEventListener("click", showActivationRequestForm);
   document.getElementById("cancelActivationRequestBtn")?.addEventListener("click", hideActivationRequestForm);
   document.getElementById("activationRequestForm")?.addEventListener("submit", sendActivationRequest);
+  document.getElementById("closeTallyConnectionPopupBtn")?.addEventListener("click", hideTallyConnectionPopup);
+  document.getElementById("popupTestTallyBtn")?.addEventListener("click", async () => {
+    try {
+      await testTally();
+      hideTallyConnectionPopup();
+      await loadLicenseStatus().catch(() => { });
+    } catch {
+      // testTally updates the popup/status on failure.
+    }
+  });
   document.getElementById("refreshActivationScopesBtn")?.addEventListener("click", () => loadLicenceScopes({ silent: false }));
   document.getElementById("refreshArchiveBtn").addEventListener("click", loadArchive);
   document.getElementById("clearArchiveBtn").addEventListener("click", clearArchive);
@@ -664,7 +676,7 @@ function bindActions() {
     await loadPortalSalesEntries({ silent: true });
   });
 
-  document.getElementById("voucherNumberSelect").addEventListener("change", (event) => {
+  document.getElementById("voucherNumberSelect")?.addEventListener("change", (event) => {
     if (!event.target.value) return;
     setValue("voucherNumber", event.target.value);
     previewRequest();
@@ -972,11 +984,13 @@ async function sendWorkbenchRequest() {
       title: "Preparing request",
       message: "Creating signed SATHI request for selected licence."
     });
+    await ensureTallyConnectedForAction();
     await previewRequest();
     if (state.license && !isLicenseActive()) {
       const licenseError = new Error(state.license.message || "License not activated.");
       licenseError.license = state.license;
       licenseError.isLicenseError = true;
+      licenseError.status = state.license.status || "";
       throw licenseError;
     }
     setStatus("saathiStatus", "Calling...", "");
@@ -1126,6 +1140,8 @@ async function testTally(options = {}) {
     }
     setStatus("tallyStatus", "Connected", "success");
     state.tallySerialNumber = result.licenseSerialNumber || result.licenseInfo?.serialNumber || "";
+    state.machineId = result.machineId || "";
+    state.machineIdSource = normalizeMachineIdSource(state.tallySerialNumber);
     document.getElementById("tallyStatusHint").textContent = `${result.companies.length} compan${result.companies.length === 1 ? "y" : "ies"} detected.`;
     setText("tallyNote", "Tally connection is ready.");
     updateCompanyOptions(result.companies, selectedCompany);
@@ -1146,10 +1162,20 @@ async function testTally(options = {}) {
     setStatus("tallyStatus", compactError(error.message), "danger");
     document.getElementById("tallyStatusHint").textContent = error.message;
     setText("tallyNote", error.message);
+    if (isTallyNotConnectedError(error)) showTallyConnectionPopup(error.message);
     await loadErrors();
     await loadTallyLogs();
     if (!options.silent) showToast("Tally check failed. Error Desk updated.");
     throw error;
+  }
+}
+
+async function ensureTallyConnectedForAction() {
+  try {
+    await testTally({ silent: true, keepSelectedCompany: true });
+  } catch (error) {
+    if (isTallyNotConnectedError(error)) showTallyConnectionPopup(error.message);
+    throw new Error(error.message || "Tally is not connected. Open Tally Prime and try again.");
   }
 }
 
@@ -1735,13 +1761,17 @@ function renderOrders() {
     const bill = findBillForOrder(order);
     const tallyStatus = state.tallyStatuses[order.voucherNumber] || "Pending for Tally";
     const mappingStatus = bill ? mappingStatusForBill(bill) : { label: t("lotMissing", "Lot missing"), className: "status-pill status-warn" };
-    const pushDisabled = tallyStatus === "Found in Tally" || tallyStatus === "Verified in Tally" || tallyStatus === "Pushed to Tally";
+    const pushDisabled = !bill || tallyStatus === "Found in Tally" || tallyStatus === "Verified in Tally" || tallyStatus === "Pushed to Tally";
+    const pushLabel = !bill ? t("push", "Push") : pushDisabled ? t("synced", "Synced") : t("push", "Push");
     const expanded = state.expandedOrder === order.voucherNumber;
     return `
     <tr class="order-main-row ${expanded ? "active-order" : ""}" data-order-index="${index}">
       <td>
         <div class="queue-voucher-cell">
-          <strong>${escapeHtml(order.voucherNumber || "")}</strong>
+          <div class="voucher-copy-row">
+            <strong>${escapeHtml(order.voucherNumber || "")}</strong>
+            <button class="voucher-copy-button" data-copy-voucher="${escapeHtml(order.voucherNumber || "")}" type="button" title="Copy voucher number">Copy</button>
+          </div>
           <small>${escapeHtml(formatOrderDate(order.voucherDate))}</small>
           <small>${escapeHtml(`Vch type: ${activeLicenceScope()?.purchaseVoucherTypeName || document.getElementById("configForm")?.tallyVoucherTypeName?.value || "Purchase"}`)}</small>
         </div>
@@ -1758,7 +1788,8 @@ function renderOrders() {
       <td>
         <div class="row-actions">
           <button class="mini-button" data-action="check" data-order-index="${index}" type="button">${escapeHtml(t("status", "Status"))}</button>
-          <button class="mini-button primary-mini" data-action="push" data-order-index="${index}" type="button" ${pushDisabled ? "disabled" : ""}>${escapeHtml(pushDisabled ? t("synced", "Synced") : t("push", "Push"))}</button>
+          ${bill ? "" : `<button class="mini-button primary-mini" data-action="pull-lot" data-order-index="${index}" type="button">Pull Lot</button>`}
+          <button class="mini-button primary-mini" data-action="push" data-order-index="${index}" type="button" ${pushDisabled ? "disabled" : ""}>${escapeHtml(pushLabel)}</button>
         </div>
       </td>
     </tr>
@@ -1781,13 +1812,52 @@ function renderOrders() {
     button.addEventListener("click", async () => {
       const order = visibleOrders[Number(button.dataset.orderIndex)];
       if (button.dataset.action === "check") await checkTallyStatus(order);
+      if (button.dataset.action === "pull-lot") await pullLotForOrder(order);
       if (button.dataset.action === "push") await pushOrderToTally(order);
+    });
+  });
+
+  document.querySelectorAll("[data-copy-voucher]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyText(button.dataset.copyVoucher || "");
     });
   });
 
   document.querySelectorAll("[data-action='review-mapping']").forEach((button) => {
     button.addEventListener("click", () => switchTab("lots"));
   });
+}
+
+async function pullLotForOrder(order) {
+  const voucherNumber = order?.voucherNumber || "";
+  if (!voucherNumber) return;
+
+  const payload = lotDetailsPayloadForOrder(order);
+  document.getElementById("apiAction").value = "pullLot";
+  setValue("quickOwnerCode", payload.ownerCode);
+  setValue("quickStateCode", payload.stateCode);
+  setValue("voucherNumber", payload.voucherNumber);
+  setValue("locationCode", payload.locationCode);
+  updateActionFields();
+  switchTab("dashboard");
+  document.querySelector(".advanced-workbench")?.setAttribute("open", "");
+  document.querySelector(".advanced-workbench")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  setText("lastFetchNote", `Ready to pull lot details for ${voucherNumber}. Review and click Run Action.`);
+  await previewRequest();
+  document.getElementById("sendWorkbenchBtn")?.focus();
+  showToast(`Pull lot request opened for ${voucherNumber}.`);
+}
+
+function lotDetailsPayloadForOrder(order = {}) {
+  const scope = activeLicenceScope();
+  const fields = scope?.fields || {};
+  return {
+    ownerCode: fields.ownerCode || scopeLicenceCode(scope) || state.config?.saathi?.ownerCode || document.getElementById("quickOwnerCode")?.value?.trim() || order.buyerCode || "",
+    stateCode: fields.stateCode || state.config?.saathi?.stateCode || document.getElementById("quickStateCode")?.value?.trim() || order.stateCode || "",
+    voucherNumber: order.voucherNumber || "",
+    locationCode: fields.locationCode || fields.ownerCode || scopeLicenceCode(scope) || state.config?.saathi?.locationCode || document.getElementById("locationCode")?.value?.trim() || order.buyerCode || ""
+  };
 }
 
 function orderDetailHtml(bill) {
@@ -3127,12 +3197,14 @@ function updateVoucherOptions() {
   const values = availableVoucherNumbers();
   const datalist = document.getElementById("availableVoucherNumbers");
   const select = document.getElementById("voucherNumberSelect");
-  if (!datalist || !select) return;
+  if (!datalist) return;
 
   datalist.innerHTML = values.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
-  select.innerHTML = '<option value="">Select fetched voucher</option>' + values.map((value) => (
-    `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
-  )).join("");
+  if (select) {
+    select.innerHTML = '<option value="">Select fetched voucher</option>' + values.map((value) => (
+      `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
+    )).join("");
+  }
 }
 
 function availableVoucherNumbers() {
@@ -3243,6 +3315,10 @@ function currentTallySerialNumber() {
   return state.tallySerialNumber || state.license?.tallyLicenseNumber || state.license?.license?.tallyLicense || "";
 }
 
+function currentMachineId() {
+  return state.machineId || "";
+}
+
 function currentSathiLicenceNumber() {
   const licenseText = licenseNumberText(state.license || {});
   if (licenseText && licenseText !== "-") return licenseText;
@@ -3262,6 +3338,37 @@ function syncActivationRequestAutoFields() {
   setValue("activationCompanyName", document.getElementById("activationCompanyName")?.value || selectedCompanyName());
   renderActivationSathiLicenceOptions();
   setValue("activationTallySerialNumber", currentTallySerialNumber());
+  setValue("activationMachineId", currentMachineId());
+  refreshMachineIdFromTallySerial();
+}
+
+async function refreshMachineIdFromTallySerial() {
+  const source = normalizeMachineIdSource(currentTallySerialNumber());
+  if (!source) {
+    state.machineId = "";
+    state.machineIdSource = "";
+    setValue("activationMachineId", "");
+    return;
+  }
+
+  if (state.machineId && state.machineIdSource === source) {
+    setValue("activationMachineId", state.machineId);
+    return;
+  }
+
+  state.machineIdSource = source;
+  setValue("activationMachineId", "Generating...");
+  const result = await api("/api/license/machine-id", {
+    method: "POST",
+    body: { tallySerialNumber: source }
+  }).catch(() => ({ machineId: "" }));
+  if (state.machineIdSource !== source) return;
+  state.machineId = result.machineId || "";
+  setValue("activationMachineId", state.machineId);
+}
+
+function normalizeMachineIdSource(value) {
+  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
 function renderActivationSathiLicenceOptions() {
@@ -3298,10 +3405,18 @@ function syncSelectedActivationLicences() {
   setValue("activationSathiLicence", getSelectedActivationLicences().join(", "));
 }
 
-function showActivationRequestForm() {
+async function showActivationRequestForm() {
+  if (!currentTallySerialNumber()) {
+    setText("activationRequestMessage", "Checking Tally serial number...");
+    await testTally({ silent: true, keepSelectedCompany: true }).catch(() => { });
+  }
   syncActivationRequestAutoFields();
+  await refreshMachineIdFromTallySerial();
   document.getElementById("licenseActivationView")?.classList.add("hidden");
   document.getElementById("activationRequestForm")?.classList.remove("hidden");
+  if (!currentMachineId()) {
+    setText("activationRequestMessage", "Connect Tally first so Machine ID can be generated.");
+  }
   window.setTimeout(() => document.getElementById("activationCustomerName")?.focus(), 0);
 }
 
@@ -3355,6 +3470,7 @@ async function api(url, options = {}) {
       const error = new Error(data.error?.message || data.message || "Request failed");
       error.license = data.license || null;
       error.isLicenseError = Boolean(data.license);
+      error.status = data.status || data.error?.status || "";
       throw error;
     }
 
@@ -3379,6 +3495,10 @@ function hideGlobalLoadingBar() {
 async function copyElementText(id) {
   const element = document.getElementById(id);
   const text = element?.value || element?.textContent || "";
+  await copyText(text);
+}
+
+async function copyText(text) {
   if (!text) return;
   await navigator.clipboard.writeText(text);
   showToast("Copied.");
@@ -3424,8 +3544,25 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3200);
 }
 
+function showTallyConnectionPopup(message) {
+  const popup = document.getElementById("tallyConnectionPopup");
+  if (!popup) return;
+  setText("tallyConnectionPopupText", message || "Tally is not connected. Open Tally Prime, keep the target company loaded, then test again.");
+  popup.classList.remove("hidden");
+  window.setTimeout(() => document.getElementById("popupTestTallyBtn")?.focus(), 0);
+}
+
+function hideTallyConnectionPopup() {
+  document.getElementById("tallyConnectionPopup")?.classList.add("hidden");
+}
+
+function isTallyNotConnectedError(error = {}) {
+  const message = String(error.message || "");
+  return error.status === "tally_not_connected" || /Tally is not reachable|Tally is not connected|Open Tally Prime/i.test(message);
+}
+
 function showApiErrorToast(error, fallback) {
-  showToast(error?.isLicenseError ? error.message : fallback);
+  showToast(error?.isLicenseError || error?.status ? error.message : fallback);
 }
 
 function debounce(callback, wait) {
@@ -3461,10 +3598,15 @@ async function loadLicenseStatus() {
   const result = await api("/api/license/status");
   state.license = result.license;
   renderLicenseState();
+  if (state.license?.status === "tally_not_connected" || state.license?.tallyConnected === false) {
+    showTallyConnectionPopup(state.license.message);
+  } else {
+    hideTallyConnectionPopup();
+  }
 }
 
 function isLicenseActive() {
-  return Boolean(state.license?.activated && !state.license?.expired);
+  return Boolean(state.license?.activated && !state.license?.expired && state.license?.status !== "tally_not_connected" && state.license?.tallyConnected !== false);
 }
 function renderActivationScopes() {
   const list = document.getElementById("activationScopeList");
@@ -3501,42 +3643,60 @@ function renderActivationScopes() {
 }
 function renderLicenseState(options = {}) {
   const license = state.license || {};
+  const tallyNotConnected = license.status === "tally_not_connected" || license.tallyConnected === false;
+  const tallyMismatch = license.status === "tally_mismatch";
+  const tallyEducational = license.status === "tally_educational";
+  const machineMismatch = license.status === "machine_mismatch";
+  const dateValidationError = ["clock_rollback", "suspicious_forward_jump", "internet_required_first", "internet_required_reverify"].includes(license.status);
   const expired = license.expired || license.status === "expired";
   const active = isLicenseActive();
+  const showLicenseBanner = !active && !tallyNotConnected && !license.suppressLicenseBanner;
+  const inactiveLabel = dateValidationError ? "Date validation failed" : machineMismatch ? "Machine ID mismatch" : tallyEducational ? "Tally educational" : tallyMismatch ? "Tally SNO mismatch" : expired ? "Expired" : "Not activated";
+  const inactiveMessage = license.message || (active ? "License is active." : "Import a valid license file.");
   
   document.getElementById("licenseScreen")?.classList.toggle("hidden", !options.forceScreen);
-  document.getElementById("licenseBanner")?.classList.toggle("hidden", active);
+  document.getElementById("licenseBanner")?.classList.toggle("hidden", !showLicenseBanner);
   const sidebarLicenseStatus = document.getElementById("licence-activated-span");
   sidebarLicenseStatus?.classList.toggle("active", active);
-  sidebarLicenseStatus?.classList.toggle("expired", !active && expired);
+  sidebarLicenseStatus?.classList.toggle("expired", !active && (expired || tallyMismatch || tallyEducational || machineMismatch || dateValidationError) && !tallyNotConnected);
 
   setText("licenseTallyNumber", license.tallyLicenseNumber || "-");
   renderLicenseScopeChips(license);
-  setText("sidebarLicenseStatus", active ? "Active" : expired ? "Expired" : "Not activated");
+  setText("sidebarLicenseStatus", tallyNotConnected ? "Tally not connected" : active ? "Active" : inactiveLabel);
   setText(
     "sidebarLicenseMeta",
-    active
+    tallyNotConnected
+      ? license.message || "Open Tally Prime to verify license."
+      : active
       ? license.expiresAt ? `Valid until ${license.expiresAt}` : "License is active."
-      : license.message || "Import a valid license file."
+      : inactiveMessage
   );
-  setText("licensePanelStatus", active ? "Active" : expired ? "Expired" : "Not activated");
+  setText("licensePanelStatus", tallyNotConnected ? "Tally not connected" : active ? "Active" : inactiveLabel);
   setText("licensePanelExpiry", license.expiresAt || "-");
   setText("licensePanelNumbers", licenseNumberText(license));
   setText("licensePanelTally", license.tallyLicenseNumber || "-");
   setText("licensePanelClientId", license.saathiClientId || "-");
-  setText("licensePanelMessage", license.message || (active ? "License is active." : "Import a valid license file to continue."));
+  setText("licensePanelMessage", tallyNotConnected ? license.message || "Open Tally Prime to verify license." : inactiveMessage);
   document.getElementById("licensePanelStatus")?.classList.toggle("success", active);
-  document.getElementById("licensePanelStatus")?.classList.toggle("danger", !active);
+  document.getElementById("licensePanelStatus")?.classList.toggle("danger", !active && !tallyNotConnected);
 
-  setText("licenseBannerTitle", expired ? "License expired" : "License not activated");
+  setText("licenseBannerTitle", dateValidationError ? "Date validation failed" : machineMismatch ? "Machine ID mismatch" : tallyEducational ? "Tally educational mode" : tallyMismatch ? "Tally SNO mismatch" : expired ? "License expired" : "License not activated");
   setText(
     "licenseBannerText",
-    expired
+    dateValidationError
+      ? inactiveMessage
+      : machineMismatch
+      ? inactiveMessage
+      : tallyEducational
+      ? inactiveMessage
+      : tallyMismatch
+      ? inactiveMessage
+      : expired
       ? "Import a renewed license file to continue."
       : "SATHI API calls are blocked until license is active."
   );
 
-  setText("licenseScreenTitle", expired ? "License expired" : active ? "License active" : "License not activated");
+  setText("licenseScreenTitle", tallyNotConnected ? "Tally not connected" : dateValidationError ? "Date validation failed" : machineMismatch ? "Machine ID mismatch" : tallyEducational ? "Tally educational mode" : tallyMismatch ? "Tally SNO mismatch" : expired ? "License expired" : active ? "License active" : "License not activated");
   setText("licenseScreenText", license.message || "Import a valid license file to continue.");
   syncActivationRequestAutoFields();
   updateTopScopeBar();
@@ -3578,6 +3738,15 @@ async function activateLicenseFromFile(inputId = "licenseFileInput") {
     showToast("License imported.");
   } catch (error) {
     if (error.license) state.license = error.license;
+    else if (error.status) {
+      state.license = {
+        ...(state.license || {}),
+        activated: false,
+        expired: false,
+        status: error.status,
+        message: error.message || "License activation failed."
+      };
+    }
     renderLicenseState();
     setText("licensePanelMessage", error.message || "License activation failed.");
     setText("licenseScreenText", error.message || "License activation failed.");
@@ -3588,6 +3757,7 @@ async function activateLicenseFromFile(inputId = "licenseFileInput") {
 async function sendActivationRequest(event) {
   event.preventDefault();
   syncActivationRequestAutoFields();
+  await refreshMachineIdFromTallySerial();
   const form = event.currentTarget;
   const body = Object.fromEntries(new FormData(form).entries());
   const button = form.querySelector("button[type='submit']");

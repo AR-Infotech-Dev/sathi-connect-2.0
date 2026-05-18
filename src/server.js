@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import tls from "node:tls";
@@ -120,10 +121,18 @@ async function handleLicenseRequest(request, response) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/license/machine-id") {
+    const body = await readJson(request);
+    const machineId = createMachineIdFromTallySerial(body.tallySerialNumber || "");
+    sendJson(response, 200, { ok: true, machineId });
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/license/activate") {
     const body = await readJson(request);
     try {
-      await licenseService.activateFromContent(body.content || "");
+      const identity = await currentLicenseIdentity();
+      await licenseService.activateFromContent(body.content || "", identity);
       const license = await checkedLicenseStatus({ throwOnInvalid: true });
       sendJson(response, 200, { ok: true, license });
       return true;
@@ -143,7 +152,32 @@ async function handleLicenseRequest(request, response) {
 }
 
 async function checkedLicenseStatus(options = {}) {
-  const status = await licenseService.getStatus();
+  let identity = null;
+  try {
+    await assertTallyConnected();
+    const info = await assertTallyLicensedMode();
+    identity = licenseIdentityFromTallyInfo(info);
+  } catch (error) {
+    if (error.status === "tally_educational") {
+      return {
+        activated: false,
+        expired: false,
+        status: "tally_educational",
+        tallyConnected: true,
+        message: error.message
+      };
+    }
+    return {
+      activated: false,
+      expired: false,
+      status: "tally_not_connected",
+      tallyConnected: false,
+      suppressLicenseBanner: true,
+      message: error.message || "Tally is not connected. Open Tally Prime and try again."
+    };
+  }
+
+  const status = await licenseService.getStatus(identity);
   if (!status.activated) return status;
 
   try {
@@ -356,9 +390,64 @@ async function handleApi(request, response) {
 }
 
 async function requireApiLicense() {
-  const status = await licenseService.requireActive();
+  await assertTallyConnected();
+  const info = await assertTallyLicensedMode();
+  const status = await licenseService.requireActive(licenseIdentityFromTallyInfo(info));
   await assertRuntimeLicenseMatches(status);
   return status;
+}
+
+async function assertTallyConnected() {
+  const env = readEnv();
+  const client = new TallyClient({
+    url: env.TALLY_URL,
+    timeoutMs: Math.min(Math.max(Number(env.TALLY_TIMEOUT_MS || 0), 5000), 10000)
+  });
+  try {
+    await client.ensurePortReachable();
+  } catch (error) {
+    const connectionError = new Error(error.message || "Tally is not connected. Open Tally Prime and try again.");
+    connectionError.status = "tally_not_connected";
+    throw connectionError;
+  }
+}
+
+async function assertTallyLicensedMode() {
+  const env = readEnv();
+  const client = new TallyClient({
+    url: env.TALLY_URL,
+    timeoutMs: Math.min(Math.max(Number(env.TALLY_TIMEOUT_MS || 0), 5000), 10000)
+  });
+  const info = await client.fetchLicenseInfo();
+  if (isEducationalTallyInfo(info)) {
+    const error = new Error("Tally is running in educational mode. Connect a licensed Tally first.");
+    error.status = "tally_educational";
+    throw error;
+  }
+  return info;
+}
+
+function isEducationalTallyInfo(info = {}) {
+  const serial = normalizeLicenseValue(info.serialNumber || "");
+  const raw = String(info.rawPreview || info.attempts?.map((attempt) => attempt.rawPreview).join(" ") || "");
+  if (/\b(EDU|EDUCATIONAL)\b/i.test(serial) || /\bEDUCATIONAL\s+MODE\b/i.test(raw)) return true;
+  return !serial || serial === "0";
+}
+
+async function currentLicenseIdentity() {
+  await assertTallyConnected();
+  const info = await assertTallyLicensedMode();
+  return licenseIdentityFromTallyInfo(info);
+}
+
+function licenseIdentityFromTallyInfo(info = {}) {
+  const env = readEnv();
+  const tallyLicenseNumber = normalizeLicenseValue(info.serialNumber || "");
+  return {
+    tallyLicenseNumber,
+    machineId: createMachineIdFromTallySerial(tallyLicenseNumber),
+    saathiClientId: env.SAATHI_CLIENT_ID || process.env.SAATHI_CLIENT_ID || ""
+  };
 }
 
 async function assertRuntimeLicenseMatches(status) {
@@ -442,13 +531,16 @@ async function sendActivationRequestEmail(body = {}) {
 }
 
 function normalizeActivationRequest(body = {}) {
+  const tallySerialNumber = String(body.tallySerialNumber || "").trim();
+  const machineId = String(body.machineId || "").trim() || createMachineIdFromTallySerial(tallySerialNumber);
   return {
     customerName: String(body.customerName || "").trim(),
     companyName: String(body.companyName || "").trim(),
     email: String(body.email || "").trim(),
     phone: String(body.phone || "").trim(),
     sathiLicence: String(body.sathiLicence || "").trim(),
-    tallySerialNumber: String(body.tallySerialNumber || "").trim(),
+    tallySerialNumber,
+    machineId,
     referenceId: String(body.referenceId || "").trim(),
     requestedAt: new Date().toISOString()
   };
@@ -494,6 +586,7 @@ function activationRequestDetailsText(request) {
     `Phone number: ${request.phone}`,
     `SATHI licence: ${request.sathiLicence}`,
     `Tally serial number: ${request.tallySerialNumber || "-"}`,
+    `Machine ID: ${request.machineId || "-"}`,
     `Reference ID: ${request.referenceId || "-"}`,
     `Requested at: ${request.requestedAt}`
   ].join("\n");
@@ -522,6 +615,7 @@ function buildActivationEmailMessage({ from, to, subject, request, detailsText }
           ${activationEmailRow("Phone number", request.phone)}
           ${activationEmailRow("SATHI licence", request.sathiLicence)}
           ${activationEmailRow("Tally serial number", request.tallySerialNumber || "-")}
+          ${activationEmailRow("Machine ID", request.machineId || "-")}
           ${activationEmailRow("Reference ID", request.referenceId || "-")}
           ${activationEmailRow("Requested at", request.requestedAt)}
         </table>
@@ -574,6 +668,16 @@ function activationEmailRow(label, value) {
     <td style="width:190px;padding:9px 0;border-top:1px solid #eef2f7;color:#64748b;font-weight:700;">${escapeHtmlText(label)}</td>
     <td style="padding:9px 0;border-top:1px solid #eef2f7;color:#172033;">${escapeHtmlText(value || "-")}</td>
   </tr>`;
+}
+
+function createMachineIdFromTallySerial(value) {
+  const normalized = normalizeLicenseValue(value);
+  if (!normalized) return "";
+  const digest = crypto
+    .createHash("sha256")
+    .update(`sathi-connect:tally-serial:${normalized}`)
+    .digest("base64url");
+  return `${digest}`;
 }
 
 async function sendSmtpMail(smtp, message) {
@@ -1275,7 +1379,13 @@ async function callTally(response) {
 
   try {
     const result = await client.testConnection();
-    const payload = { ok: true, ...result, checkedAt: new Date().toISOString() };
+    if (isEducationalTallyInfo(result.licenseInfo)) {
+      const error = new Error("Tally is running in educational mode. Connect a licensed Tally first.");
+      error.status = "tally_educational";
+      throw error;
+    }
+    const machineId = createMachineIdFromTallySerial(result.licenseSerialNumber || result.licenseInfo?.serialNumber || "");
+    const payload = { ok: true, ...result, machineId, checkedAt: new Date().toISOString() };
     const log = recordTallyLog("test-connection", "success", {
       companyName: env.TALLY_COMPANY_NAME || "",
       url: env.TALLY_URL || "http://127.0.0.1:9000",
@@ -1285,6 +1395,7 @@ async function callTally(response) {
     sendJson(response, 200, { ...payload, log });
   } catch (error) {
     const entry = recordError("Tally", error, { url: env.TALLY_URL || "http://127.0.0.1:9000" });
+    entry.status = error.status || "";
     const log = recordTallyLog("test-connection", "failed", {
       companyName: env.TALLY_COMPANY_NAME || "",
       url: env.TALLY_URL || "http://127.0.0.1:9000",
@@ -1292,7 +1403,7 @@ async function callTally(response) {
       error: entry
     });
     entry.tallyLogId = log.id;
-    sendJson(response, 502, { ok: false, error: entry });
+    sendJson(response, 502, { ok: false, status: error.status || "tally_error", error: entry });
   }
 }
 

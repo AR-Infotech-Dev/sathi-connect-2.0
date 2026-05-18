@@ -34,6 +34,19 @@
     </div>
   </section>
 
+  <section class="tally-connection-popup hidden" id="tallyConnectionPopup" aria-modal="true" role="dialog"
+    aria-labelledby="tallyConnectionPopupTitle">
+    <div class="tally-connection-card">
+      <h2 id="tallyConnectionPopupTitle">Start Tally first</h2>
+      <p id="tallyConnectionPopupText">Tally is not connected. Open Tally Prime, keep the target company loaded, then
+        test again.</p>
+      <div class="tally-connection-actions">
+        <button class="secondary-button" id="closeTallyConnectionPopupBtn" type="button">Close</button>
+        <button class="primary-button" id="popupTestTallyBtn" type="button">Test Tally</button>
+      </div>
+    </div>
+  </section>
+
   <div class="app-shell">
     <aside class="sidebar">
       <div class="language-card">
@@ -140,21 +153,6 @@
         <button id="openLicenseScreenBtn" type="button">Manage License</button>
       </div>
       <section class="tab-panel active" id="dashboard">
-        <section class="dashboard-work-panel">
-          <button class="dashboard-work-card" data-action="quickFetchOrders" type="button">
-            <span>SATHI to Tally</span>
-            <strong>Fetch lot and create purchase voucher</strong>
-            <small>Use this for portal inward data.</small>
-            <em>Start</em>
-          </button>
-          <button class="dashboard-work-card" data-switch-tab="portalPush" type="button">
-            <span>Tally to SATHI</span>
-            <strong>Create SATHI order from sales bill</strong>
-            <small>Use this after sales bill is ready in Tally.</small>
-            <em>Start</em>
-          </button>
-        </section>
-
         <div class="status-grid dashboard-status-strip">
           <div class="metric">
             <span data-i18n="metricSaathi">SATHI API</span>
@@ -177,7 +175,20 @@
             <small data-i18n="metricErrorsHint">Support-ready issue log</small>
           </div>
         </div>
-
+        <section class="dashboard-work-panel">
+          <button class="dashboard-work-card" data-action="quickFetchOrders" type="button">
+            <span>SATHI to Tally</span>
+            <strong>Fetch lot and create purchase voucher</strong>
+            <small>Use this for portal inward data.</small>
+            <em>Start</em>
+          </button>
+          <button class="dashboard-work-card" data-switch-tab="portalPush" type="button">
+            <span>Tally to SATHI</span>
+            <strong>Create SATHI order from sales bill</strong>
+            <small>Use this after sales bill is ready in Tally.</small>
+            <em>Start</em>
+          </button>
+        </section>
         <details class="panel workbench-panel advanced-workbench">
           <summary class="panel-header">
             <div>
@@ -272,13 +283,6 @@
                     <input id="locationCode" type="text" placeholder="Location code">
                   </label>
                 </div>
-                <label class="request-lot-fields">
-                  <span data-i18n="availableVouchers">Available fetched voucher numbers</span>
-                  <select id="voucherNumberSelect">
-                    <option value="">Select fetched voucher</option>
-                  </select>
-                </label>
-
                 <label class="create-order-json demo-hidden">
                   <span data-i18n="createOrderJson">Create order JSON</span>
                   <textarea id="createOrderJson" spellcheck="false"></textarea>
@@ -433,12 +437,10 @@
             </div>
             <div class="button-row">
               <label class="date-filter-label">
-                From
-                <input id="portalDateFrom" type="date">
+                From <input id="portalDateFrom" type="date">
               </label>
               <label class="date-filter-label">
-                To
-                <input id="portalDateTo" type="date">
+                To <input id="portalDateTo" type="date">
               </label>
               <button class="secondary-button" id="portalRefreshSalesBtn" type="button">Fetch Sales Entries</button>
             </div>
@@ -891,70 +893,6 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h3>SATHI Settings</h3>
-                <p>These SATHI values are saved against the selected Tally company.</p>
-              </div>
-            </div>
-            <div class="compact-form">
-              <div class="config-section-title">Portal Access</div>
-              <div class="config-group-grid">
-                <label>
-                  Base URL
-                  <input name="saathiBaseUrl" type="url" placeholder="https://seedtrace.gov.in/inv-apis2">
-                </label>
-                <label>
-                  API key
-                  <input name="saathiApiKey" type="password" placeholder="Leave blank to keep existing key">
-                </label>
-              </div>
-              <div class="two-col">
-                <label>
-                  Client ID
-                  <input name="saathiClientId" type="text">
-                </label>
-                <label>
-                  Client secret
-                  <input name="saathiClientSecret" type="password" placeholder="Leave blank to keep existing secret">
-                </label>
-              </div>
-              <div class="config-section-title">Billing Identity</div>
-              <div class="two-col">
-                <label>
-                  Owner code
-                  <input name="saathiOwnerCode" type="text">
-                </label>
-                <label>
-                  Location code
-                  <input name="saathiLocationCode" type="text">
-                </label>
-              </div>
-              <div class="three-col">
-                <label>
-                  State code
-                  <input name="saathiStateCode" type="text">
-                </label>
-                <label>
-                  Timeout ms
-                  <input name="saathiTimeoutMs" type="number" min="1000">
-                </label>
-                <label>
-                  Retries
-                  <input name="saathiRetryCount" type="number" min="0" max="5">
-                </label>
-              </div>
-              <label>
-                Client secret mode
-                <select name="saathiClientSecretMode">
-                  <option value="plain">Plain secret from SATHI</option>
-                  <option value="sha512">SHA512(password)</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
                 <h3>Tally Settings</h3>
                 <p>Keep company selection ready for voucher creation and sync.</p>
               </div>
@@ -1041,6 +979,69 @@
                   <input name="tallyIgstLedgerName" type="text" placeholder="IGST">
                 </label>
               </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>SATHI Settings</h3>
+                <p>These SATHI values are saved against the selected Tally company.</p>
+              </div>
+            </div>
+            <div class="compact-form">
+              <div class="config-section-title">Portal Access</div>
+              <div class="config-group-grid">
+                <label>
+                  Base URL
+                  <input name="saathiBaseUrl" type="url" placeholder="https://seedtrace.gov.in/inv-apis2">
+                </label>
+                <label>
+                  API key
+                  <input name="saathiApiKey" type="password" placeholder="Leave blank to keep existing key">
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  Client ID
+                  <input name="saathiClientId" type="text">
+                </label>
+                <label>
+                  Client secret
+                  <input name="saathiClientSecret" type="password" placeholder="Leave blank to keep existing secret">
+                </label>
+              </div>
+              <div class="config-section-title">Billing Identity</div>
+              <div class="two-col">
+                <label>
+                  Owner code
+                  <input name="saathiOwnerCode" type="text">
+                </label>
+                <label>
+                  Location code
+                  <input name="saathiLocationCode" type="text">
+                </label>
+              </div>
+              <div class="three-col">
+                <label>
+                  State code
+                  <input name="saathiStateCode" type="text">
+                </label>
+                <label>
+                  Timeout ms
+                  <input name="saathiTimeoutMs" type="number" min="1000">
+                </label>
+                <label>
+                  Retries
+                  <input name="saathiRetryCount" type="number" min="0" max="5">
+                </label>
+              </div>
+              <label>
+                Client secret mode
+                <select name="saathiClientSecretMode">
+                  <option value="plain">Plain secret from SATHI</option>
+                  <option value="sha512">SHA512(password)</option>
+                </select>
+              </label>
             </div>
           </section>
         </form>
@@ -1200,6 +1201,10 @@
               <label>
                 Tally serial number
                 <input id="activationTallySerialNumber" name="tallySerialNumber" type="text" readonly>
+              </label>
+              <label>
+                Machine ID
+                <input id="activationMachineId" name="machineId" type="text" readonly>
               </label>
               <label>
                 Reference ID <span>Optional</span>

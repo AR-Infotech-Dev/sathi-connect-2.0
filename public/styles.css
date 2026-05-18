@@ -88,6 +88,49 @@ body {
   backdrop-filter: blur(3px);
 }
 
+.tally-connection-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(15, 23, 42, 0.46);
+}
+
+.tally-connection-card {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.tally-connection-card h2,
+.tally-connection-card p {
+  margin: 0;
+}
+
+.tally-connection-card h2 {
+  color: var(--red);
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.tally-connection-card p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tally-connection-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .license-card {
   display: grid;
   gap: 16px;
@@ -482,8 +525,8 @@ button {
   border-radius: 4px;
   background: rgba(var(--accent-rgb), 0.1);
   position: sticky;
-  /* bottom: 0px; */
-  bottom: 55px;
+  bottom: 0px;
+  /* bottom: 55px; */
 
 }
 
@@ -547,7 +590,7 @@ button {
   grid-column: 2;
   grid-row: 3;
   min-width: 0;
-  padding: 24px 32px 34px;
+  padding: 22px 32px 34px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1342,7 +1385,7 @@ h3 {
 }
 
 .portal-push-panel .panel-header {
-  padding: 18px;
+  /* padding: 18px; */
   margin: 0;
   border-bottom: 1px solid var(--line);
 }
@@ -2427,6 +2470,29 @@ td:last-child {
   color: var(--muted);
   font-size: 11px;
   text-overflow: ellipsis;
+}
+
+.voucher-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voucher-copy-row strong {
+  min-width: 0;
+}
+
+.voucher-copy-button {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--blue);
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .primary-mini {
