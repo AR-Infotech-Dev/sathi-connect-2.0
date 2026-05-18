@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { SaathiClient } from "./saathi-client.js";
 import { SaathiBillingClient } from "./saathi-billing-client.js";
 
+
 async function main() {
   const [command = "help", ...args] = process.argv.slice(2);
 
