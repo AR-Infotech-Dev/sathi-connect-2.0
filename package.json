@@ -27,7 +27,7 @@
       "keys/**/*",
       "package.json"
     ],
-    "asar": false,
+    "asar": true,
     "directories": {
       "output": "release 0.0.1"
     },
