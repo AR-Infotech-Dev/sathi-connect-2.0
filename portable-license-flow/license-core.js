@@ -10,43 +10,40 @@ export function createLicenseService(options = {}) {
   const secret = options.secret || "AR-INFOTECH-LICENSE-GENERATOR-2026";
   const salt = options.salt || "ar-infotech-license-salt-v1";
   const clockRollbackToleranceMs = options.clockRollbackToleranceMs ?? 5 * 60 * 1000;
+  const maxForwardJumpMs = options.maxForwardJumpMs ?? 366 * 24 * 60 * 60 * 1000;
   const debugLog = options.debugLog || (() => {});
   const debugError = options.debugError || (() => {});
   const getIdentityExtras = options.getIdentityExtras || (() => ({}));
 
+  function getIdentity() {
+    return {
+      tallyLicenseNumber: "",
+      saathiClientId: "",
+      machineId: "",
+      ...getIdentityExtras()
+    };
+  }
+
   function getMachineId() {
-    const networkIds = Object.values(os.networkInterfaces())
-      .flat()
-      .filter((entry) => entry && !entry.internal && entry.mac && entry.mac !== "00:00:00:00:00:00")
-      .map((entry) => entry.mac)
-      .sort()
-      .join("|");
-    const rawId = [os.hostname(), os.platform(), os.arch(), os.cpus()?.[0]?.model || "", networkIds].join("|");
-    return crypto.createHash("sha256").update(rawId).digest("hex");
+    const macAddress = getMacAddress();
+    const source = [os.hostname(), macAddress].filter(Boolean).join("|");
+    return source ? digest(source) : "";
   }
 
   function getMacAddress() {
-    for (const entries of Object.values(os.networkInterfaces())) {
+    const interfaces = os.networkInterfaces();
+    for (const entries of Object.values(interfaces)) {
       for (const entry of entries || []) {
-        const mac = String(entry.mac || "").trim();
-        if (!entry.internal && mac && mac !== "00:00:00:00:00:00") return mac.toUpperCase();
+        if (!entry.internal && entry.mac && entry.mac !== "00:00:00:00:00:00") {
+          return entry.mac;
+        }
       }
     }
     return "";
   }
 
-  function getIdentity() {
-    return {
-      machineId: getMachineId(),
-      macAddress: getMacAddress(),
-      tallyLicenseNumber: "",
-      saathiClientId: "",
-      ...getIdentityExtras()
-    };
-  }
-
-  async function getStatus() {
-    const identity = getIdentity();
+  async function getStatus(identityOverride = null) {
+    const identity = identityOverride || getIdentity();
     const rawLicense = readStoredLicenseText();
     debugLog("license.status.check", { hasStoredLicense: Boolean(rawLicense), ...identity });
 
@@ -55,7 +52,8 @@ export function createLicenseService(options = {}) {
     }
 
     try {
-      const verified = verifyLicenseText(rawLicense, identity);
+      const clock = resolveTrustedClock();
+      const verified = verifyLicenseText(rawLicense, identity, clock);
       return makeStatus(identity, { activated: true, status: "active", message: "License activated.", license: verified.license });
     } catch (error) {
       debugError("license.status.invalid", error, identity);
@@ -70,10 +68,11 @@ export function createLicenseService(options = {}) {
     }
   }
 
-  async function activateFromContent(content) {
-    const identity = getIdentity();
+  async function activateFromContent(content, identityOverride = null) {
+    const identity = identityOverride || getIdentity();
     debugLog("license.import.verify.start", { contentLength: String(content || "").length, ...identity });
-    verifyLicenseText(content, identity);
+    const clock = resolveTrustedClock();
+    verifyLicenseText(content, identity, clock);
     fs.mkdirSync(path.dirname(licenseFile), { recursive: true });
     fs.writeFileSync(licenseFile, String(content || ""), "utf8");
     debugLog("license.import.saved", { licenseFile });
@@ -86,10 +85,10 @@ export function createLicenseService(options = {}) {
     return getStatus();
   }
 
-  async function requireActive() {
-    const status = await getStatus();
+  async function requireActive(identityOverride = null) {
+    const status = await getStatus(identityOverride);
     if (!status.activated) {
-      const error = new Error(status.expired ? "License expired. Renew the license to continue." : "License not activated.");
+      const error = new Error(status.message || (status.expired ? "License expired. Renew the license." : "License not activated."));
       error.statusCode = 403;
       error.licenseStatus = status;
       throw error;
@@ -105,28 +104,29 @@ export function createLicenseService(options = {}) {
     });
   }
 
-  function verifyLicenseText(rawLicense, identity = getIdentity()) {
+  function verifyLicenseText(rawLicense, identity = getIdentity(), clock = null) {
     const { file, payload } = parseLicenseFile(rawLicense);
 
-    if (payload.machineId !== identity.machineId) {
-      throw licenseError("machine_mismatch", "This license is for a different machine.");
-    }
     // if (identity.tallyLicenseNumber && payload.tallyLicense && String(payload.tallyLicense) !== String(identity.tallyLicenseNumber)) {
     //   throw licenseError("tally_mismatch", "This license does not match this Tally license number.");
     // }
-    assertClockNotRolledBack();
+    const payloadMachineId = payload.machineId || payload.machineID || payload.machine_id || "";
+    if (payloadMachineId && identity.machineId && normalizeIdentityValue(payloadMachineId) !== normalizeIdentityValue(identity.machineId)) {
+      throw licenseError("machine_mismatch", "This license does not match this machine ID.");
+    }
+    const trustedNow = clock?.now instanceof Date ? clock.now : new Date();
     const expiryDate = getEndOfLicenseDate(payload.endDate);
     if (!expiryDate) throw licenseError("invalid_expiry", "The license expiry date is invalid.");
-    if (new Date() > expiryDate) throw licenseError("expired", "This license has expired.");
-    recordTrustedSeenAt();
+    if (trustedNow > expiryDate) throw licenseError("expired", "License expired. Renew the license.");
+    recordTrustedSeenAt(clock);
 
     return {
       activated: true,
-      machineId: identity.machineId,
       license: {
         licenseNumber: payload.licenseNumber || "",
         licenseNumbers: parseLicenseNumbers(payload.licenseNumber),
         tallyLicense: payload.tallyLicense || "",
+        machineId: payloadMachineId,
         startDate: payload.startDate || "",
         endDate: payload.endDate || "",
         issuedAt: payload.issuedAt || "",
@@ -169,6 +169,7 @@ export function createLicenseService(options = {}) {
           licenseNumber: payload.licenseNumber || "",
           licenseNumbers: parseLicenseNumbers(payload.licenseNumber),
           tallyLicense: payload.tallyLicense || "",
+          machineId: payload.machineId || payload.machineID || payload.machine_id || "",
           startDate: payload.startDate || "",
           endDate: payload.endDate || "",
           issuedAt: payload.issuedAt || "",
@@ -206,20 +207,31 @@ export function createLicenseService(options = {}) {
     return fs.readFileSync(licenseFile, "utf8");
   }
 
-  function assertClockNotRolledBack() {
+  function resolveTrustedClock() {
     const runtime = readRuntime();
-    const now = Date.now();
-    const lastSeenAt = Date.parse(runtime.lastSeenAt || "");
-    if (Number.isFinite(lastSeenAt) && now + clockRollbackToleranceMs < lastSeenAt) {
-      throw licenseError("clock_rollback", "System date/time was moved backward. Correct the computer date and time to continue.");
+    const systemNow = Date.now();
+    const lastVerifiedAt = Date.parse(runtime.lastVerifiedAt || runtime.lastSeenAt || "");
+
+    if (systemNow + clockRollbackToleranceMs < lastVerifiedAt) {
+      throw licenseError("clock_rollback", "System date/time was moved backward. Correct the date and time.");
     }
+    if (Number.isFinite(lastVerifiedAt) && systemNow - lastVerifiedAt > maxForwardJumpMs) {
+      throw licenseError("suspicious_forward_jump", "Date jumped too far ahead. Correct the date/time and verify again.");
+    }
+    return { now: new Date(systemNow), source: "system", online: false };
   }
 
-  function recordTrustedSeenAt() {
-    const now = new Date().toISOString();
+  function recordTrustedSeenAt(clock = null) {
+    const now = (clock?.now instanceof Date ? clock.now : new Date()).toISOString();
     const runtime = readRuntime();
     const lastSeenAt = Date.parse(runtime.lastSeenAt || "");
-    if (!Number.isFinite(lastSeenAt) || Date.parse(now) > lastSeenAt) writeRuntime({ ...runtime, lastSeenAt: now });
+    const patch = {
+      ...runtime,
+      lastSeenAt: !Number.isFinite(lastSeenAt) || Date.parse(now) > lastSeenAt ? now : runtime.lastSeenAt,
+      lastDateSource: clock?.source || runtime.lastDateSource || ""
+    };
+    patch.lastVerifiedAt = now;
+    writeRuntime(patch);
   }
 
   function readRuntime() {
@@ -272,6 +284,7 @@ function makeStatus(identity, result = {}) {
     licenseNumbers,
     saathiClientId: license.licenseNumber || identity.saathiClientId || "",
     tallyLicenseNumber: license.tallyLicense || identity.tallyLicenseNumber || "",
+    machineId: license.machineId || identity.machineId || "",
     license: { ...license, licenseNumbers }
   };
 }
@@ -289,6 +302,10 @@ function parseLicenseNumbers(value) {
 
 function digest(value) {
   return toBase64Url(crypto.createHash("sha256").update(value).digest());
+}
+
+function normalizeIdentityValue(value) {
+  return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
 }
 
 function canonicalize(value) {

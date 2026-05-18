@@ -17,12 +17,6 @@
       <p id="licenseScreenText">Import a valid license file to continue.</p>
 
       <div>
-        <strong>Machine ID</strong>
-        <code id="licenseMachineId">-</code>
-        <button class="copy-button" data-copy="licenseMachineId" type="button">Copy</button>
-      </div>
-
-      <div>
         <strong>Tally license</strong>
         <code id="licenseTallyNumber">-</code>
       </div>
@@ -37,6 +31,19 @@
       <input id="licenseFileInput" type="file" accept=".lic,.json">
       <button id="activateLicenseBtn" type="button">Import License</button>
       <button id="closeLicenseScreenBtn" type="button">Close</button>
+    </div>
+  </section>
+
+  <section class="tally-connection-popup hidden" id="tallyConnectionPopup" aria-modal="true" role="dialog"
+    aria-labelledby="tallyConnectionPopupTitle">
+    <div class="tally-connection-card">
+      <h2 id="tallyConnectionPopupTitle">Start Tally first</h2>
+      <p id="tallyConnectionPopupText">Tally is not connected. Open Tally Prime, keep the target company loaded, then
+        test again.</p>
+      <div class="tally-connection-actions">
+        <button class="secondary-button" id="closeTallyConnectionPopupBtn" type="button">Close</button>
+        <button class="primary-button" id="popupTestTallyBtn" type="button">Test Tally</button>
+      </div>
     </div>
   </section>
 
@@ -135,6 +142,10 @@
       </div>
     </header>
 
+    <div class="global-loading-bar hidden" id="globalLoadingBar" aria-hidden="true">
+      <div class="global-loading-track"></div>
+    </div>
+
     <main class="main">
       <div class="license-banner hidden" id="licenseBanner">
         <strong id="licenseBannerTitle">License not activated</strong>
@@ -142,21 +153,6 @@
         <button id="openLicenseScreenBtn" type="button">Manage License</button>
       </div>
       <section class="tab-panel active" id="dashboard">
-        <section class="dashboard-work-panel">
-          <button class="dashboard-work-card" data-action="quickFetchOrders" type="button">
-            <span>SATHI to Tally</span>
-            <strong>Fetch lot and create purchase voucher</strong>
-            <small>Use this for portal inward data.</small>
-            <em>Start</em>
-          </button>
-          <button class="dashboard-work-card" data-switch-tab="portalPush" type="button">
-            <span>Tally to SATHI</span>
-            <strong>Create SATHI order from sales bill</strong>
-            <small>Use this after sales bill is ready in Tally.</small>
-            <em>Start</em>
-          </button>
-        </section>
-
         <div class="status-grid dashboard-status-strip">
           <div class="metric">
             <span data-i18n="metricSaathi">SATHI API</span>
@@ -179,7 +175,20 @@
             <small data-i18n="metricErrorsHint">Support-ready issue log</small>
           </div>
         </div>
-
+        <section class="dashboard-work-panel">
+          <button class="dashboard-work-card" data-action="quickFetchOrders" type="button">
+            <span>SATHI to Tally</span>
+            <strong>Fetch lot and create purchase voucher</strong>
+            <small>Use this for portal inward data.</small>
+            <em>Start</em>
+          </button>
+          <button class="dashboard-work-card" data-switch-tab="portalPush" type="button">
+            <span>Tally to SATHI</span>
+            <strong>Create SATHI order from sales bill</strong>
+            <small>Use this after sales bill is ready in Tally.</small>
+            <em>Start</em>
+          </button>
+        </section>
         <details class="panel workbench-panel advanced-workbench">
           <summary class="panel-header">
             <div>
@@ -244,7 +253,7 @@
                     <small>Marks order received on SATHI.</small>
                     <em>Open</em>
                   </button>
-                  <button class="api-action-button" data-api-action="createOrder" type="button">
+                  <button class="api-action-button demo-hidden" data-api-action="createOrder" type="button">
                     <span>4</span>
                     <strong>Create SATHI order</strong>
                     <small>Testing tool for create order API.</small>
@@ -274,13 +283,6 @@
                     <input id="locationCode" type="text" placeholder="Location code">
                   </label>
                 </div>
-                <label class="request-lot-fields">
-                  <span data-i18n="availableVouchers">Available fetched voucher numbers</span>
-                  <select id="voucherNumberSelect">
-                    <option value="">Select fetched voucher</option>
-                  </select>
-                </label>
-
                 <label class="create-order-json demo-hidden">
                   <span data-i18n="createOrderJson">Create order JSON</span>
                   <textarea id="createOrderJson" spellcheck="false"></textarea>
@@ -435,12 +437,10 @@
             </div>
             <div class="button-row">
               <label class="date-filter-label">
-                From
-                <input id="portalDateFrom" type="date">
+                From <input id="portalDateFrom" type="date">
               </label>
               <label class="date-filter-label">
-                To
-                <input id="portalDateTo" type="date">
+                To <input id="portalDateTo" type="date">
               </label>
               <button class="secondary-button" id="portalRefreshSalesBtn" type="button">Fetch Sales Entries</button>
             </div>
@@ -893,70 +893,6 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h3>SATHI Settings</h3>
-                <p>These SATHI values are saved against the selected Tally company.</p>
-              </div>
-            </div>
-            <div class="compact-form">
-              <div class="config-section-title">Portal Access</div>
-              <div class="config-group-grid">
-                <label>
-                  Base URL
-                  <input name="saathiBaseUrl" type="url" placeholder="https://seedtrace.gov.in/inv-apis2">
-                </label>
-                <label>
-                  API key
-                  <input name="saathiApiKey" type="password" placeholder="Leave blank to keep existing key">
-                </label>
-              </div>
-              <div class="two-col">
-                <label>
-                  Client ID
-                  <input name="saathiClientId" type="text">
-                </label>
-                <label>
-                  Client secret
-                  <input name="saathiClientSecret" type="password" placeholder="Leave blank to keep existing secret">
-                </label>
-              </div>
-              <div class="config-section-title">Billing Identity</div>
-              <div class="two-col">
-                <label>
-                  Owner code
-                  <input name="saathiOwnerCode" type="text">
-                </label>
-                <label>
-                  Location code
-                  <input name="saathiLocationCode" type="text">
-                </label>
-              </div>
-              <div class="three-col">
-                <label>
-                  State code
-                  <input name="saathiStateCode" type="text">
-                </label>
-                <label>
-                  Timeout ms
-                  <input name="saathiTimeoutMs" type="number" min="1000">
-                </label>
-                <label>
-                  Retries
-                  <input name="saathiRetryCount" type="number" min="0" max="5">
-                </label>
-              </div>
-              <label>
-                Client secret mode
-                <select name="saathiClientSecretMode">
-                  <option value="plain">Plain secret from SATHI</option>
-                  <option value="sha512">SHA512(password)</option>
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
                 <h3>Tally Settings</h3>
                 <p>Keep company selection ready for voucher creation and sync.</p>
               </div>
@@ -1045,6 +981,69 @@
               </div>
             </div>
           </section>
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>SATHI Settings</h3>
+                <p>These SATHI values are saved against the selected Tally company.</p>
+              </div>
+            </div>
+            <div class="compact-form">
+              <div class="config-section-title">Portal Access</div>
+              <div class="config-group-grid">
+                <label>
+                  Base URL
+                  <input name="saathiBaseUrl" type="url" placeholder="https://seedtrace.gov.in/inv-apis2">
+                </label>
+                <label>
+                  API key
+                  <input name="saathiApiKey" type="password" placeholder="Leave blank to keep existing key">
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  Client ID
+                  <input name="saathiClientId" type="text">
+                </label>
+                <label>
+                  Client secret
+                  <input name="saathiClientSecret" type="password" placeholder="Leave blank to keep existing secret">
+                </label>
+              </div>
+              <div class="config-section-title">Billing Identity</div>
+              <div class="two-col">
+                <label>
+                  Owner code
+                  <input name="saathiOwnerCode" type="text">
+                </label>
+                <label>
+                  Location code
+                  <input name="saathiLocationCode" type="text">
+                </label>
+              </div>
+              <div class="three-col">
+                <label>
+                  State code
+                  <input name="saathiStateCode" type="text">
+                </label>
+                <label>
+                  Timeout ms
+                  <input name="saathiTimeoutMs" type="number" min="1000">
+                </label>
+                <label>
+                  Retries
+                  <input name="saathiRetryCount" type="number" min="0" max="5">
+                </label>
+              </div>
+              <label>
+                Client secret mode
+                <select name="saathiClientSecretMode">
+                  <option value="plain">Plain secret from SATHI</option>
+                  <option value="sha512">SHA512(password)</option>
+                </select>
+              </label>
+            </div>
+          </section>
         </form>
       </section>
 
@@ -1104,70 +1103,118 @@
 
       <section class="tab-panel" id="license">
         <section class="panel license-management-panel">
-          <div class="panel-header">
-            <div>
-              <h3>License</h3>
-              <p>Activate, verify, or clear the local AR Infotech license for this machine.</p>
-            </div>
-            <div class="button-row">
-              <button class="secondary-button" id="refreshLicenseBtn" type="button">Refresh</button>
-              <button class="danger-button" id="clearLicenseBtn" type="button">Clear License</button>
-            </div>
-          </div>
 
-          <div class="license-status-grid">
-            <div>
-              <span>Status</span>
-              <strong id="licensePanelStatus">Not checked</strong>
-            </div>
-            <div>
-              <span>Valid until</span>
-              <strong id="licensePanelExpiry">-</strong>
-            </div>
-            <div>
-              <span>SATHI licence</span>
-              <strong id="licensePanelNumbers">-</strong>
-            </div>
-            <div>
-              <span>Tally licence</span>
-              <strong id="licensePanelTally">-</strong>
-            </div>
-          </div>
-
-          <div class="license-detail-grid">
-            <label>
-              Machine ID
-              <div class="copy-field">
-                <code id="licensePanelMachineId">-</code>
-                <button class="copy-button" data-copy="licensePanelMachineId" type="button">Copy</button>
+          <div id="licenseActivationView">
+            <div class="panel-header">
+              <div>
+                <h3>License</h3>
+                <p>Activate, verify, or clear the local license for this machine.</p>
               </div>
-            </label>
-            <label>
-              Current SATHI client
-              <div class="copy-field">
-                <code id="licensePanelClientId">-</code>
-                <button class="copy-button" data-copy="licensePanelClientId" type="button">Copy</button>
+              <div class="button-row">
+                <button class="primary-button" id="showActivationRequestBtn" type="button">Send Activation
+                  Request</button>
+                <button class="secondary-button" id="refreshLicenseBtn" type="button">Refresh</button>
+                <button class="danger-button" id="clearLicenseBtn" type="button">Clear License</button>
               </div>
-            </label>
-          </div>
+            </div>
+            <div class="license-status-grid">
+              <div>
+                <span>Status</span>
+                <strong id="licensePanelStatus">Not checked</strong>
+              </div>
+              <div>
+                <span>Valid until</span>
+                <strong id="licensePanelExpiry">-</strong>
+              </div>
+              <div>
+                <span>SATHI licence</span>
+                <strong id="licensePanelNumbers">-</strong>
+              </div>
+              <div>
+                <span>Tally licence</span>
+                <strong id="licensePanelTally">-</strong>
+              </div>
+            </div>
 
-          <div class="license-import-row">
-            <input id="licensePanelFileInput" type="file" accept=".lic,.json">
-            <button class="primary-button" id="importLicensePanelBtn" type="button">Import License</button>
-          </div>
+            <div class="license-detail-grid">
+              <label>
+                Current SATHI client
+                <div class="copy-field">
+                  <code id="licensePanelClientId">-</code>
+                  <button class="copy-button" data-copy="licensePanelClientId" type="button">Copy</button>
+                </div>
+              </label>
+            </div>
 
-          <div class="callout" id="licensePanelMessage">
-            License status has not been checked yet.
+            <div class="license-import-row">
+              <input id="licensePanelFileInput" type="file" accept=".lic,.json">
+              <button class="primary-button" id="importLicensePanelBtn" type="button">Import License</button>
+            </div>
+            <div class="callout" id="licensePanelMessage">
+              License status has not been checked yet.
+            </div>
+            <div class="available-license-panel">
+              <div class="preview-title">
+                <span>Available SATHI licenses from Tally</span>
+                <button class="secondary-button" id="refreshActivationScopesBtn" type="button">Refresh</button>
+              </div>
+              <div class="available-license-list" id="activationScopeList">
+                <div class="empty-state">Connect Tally to load available SATHI licenses.</div>
+              </div>
+            </div>
           </div>
-                <div class="available-license-panel">
-        <div class="preview-title">
-          <span>Available SATHI licenses from Tally</span>
-          <button class="secondary-button" id="refreshActivationScopesBtn" type="button">Refresh</button>
-        </div>
-        <div class="available-license-list" id="activationScopeList">
-          <div class="empty-state">Connect Tally to load available SATHI licenses.</div>
-        </div>
-      </div>
+          <form class="activation-request-form hidden" id="activationRequestForm">
+            <div class="panel-header">
+              <div>
+                <h3>Activation request</h3>
+                <p>Send activation request to get a license for the selected Tally and SATHI licence.</p>
+              </div>
+              <div class="button-row">
+                <button class="secondary-button" id="cancelActivationRequestBtn" type="button">Cancel</button>
+                <button class="primary-button" type="submit">Submit Request</button>
+              </div>
+            </div>
+            <div class="activation-request-grid">
+              <label>
+                Customer name
+                <input id="activationCustomerName" name="customerName" type="text" autocomplete="name" required>
+              </label>
+              <label>
+                Company name
+                <input id="activationCompanyName" name="companyName" type="text" autocomplete="organization" required>
+              </label>
+              <label>
+                Email
+                <input id="activationEmail" name="email" type="email" autocomplete="email" required>
+              </label>
+              <label>
+                Phone number
+                <input id="activationPhone" name="phone" type="tel" autocomplete="tel" required>
+              </label>
+              <label class="activation-license-picker">
+                SATHI licence
+                <input id="activationSathiLicence" name="sathiLicence" type="hidden" required>
+                <div class="activation-license-options" id="activationSathiLicenceOptions">
+                  <span>No SATHI licence loaded.</span>
+                </div>
+              </label>
+              <label>
+                Tally serial number
+                <input id="activationTallySerialNumber" name="tallySerialNumber" type="text" readonly>
+              </label>
+              <label>
+                Machine ID
+                <input id="activationMachineId" name="machineId" type="text" readonly>
+              </label>
+              <label>
+                Reference ID <span>Optional</span>
+                <input id="activationReferenceId" name="referenceId" type="text">
+              </label>
+            </div>
+            <div class="callout" id="activationRequestMessage">
+              Fill customer details and send an activation request.
+            </div>
+          </form>
         </section>
       </section>
 

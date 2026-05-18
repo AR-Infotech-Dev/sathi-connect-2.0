@@ -4,3 +4,6 @@ data/*.json
 logs/*.log
 logs/*.json
 node_modules/
+build/
+release 0.0.1
+Sathi-App.zip

@@ -107,6 +107,8 @@ function configureRuntimePaths() {
   const bundledEnvFile = path.join(appRoot, ".env");
   if (!fs.existsSync(packagedEnvFile) && fs.existsSync(bundledEnvFile)) {
     fs.copyFileSync(bundledEnvFile, packagedEnvFile);
+  } else if (fs.existsSync(packagedEnvFile) && fs.existsSync(bundledEnvFile)) {
+    mergeMissingEnvValues(packagedEnvFile, bundledEnvFile);
   }
 
   process.env.SATHI_ENV_FILE = packagedEnvFile;
@@ -117,6 +119,38 @@ function configureRuntimePaths() {
   process.env.SATHI_LICENSE_FILE = path.join(dataDir, "license.lic");
   process.env.SATHI_LICENSE_RUNTIME_FILE = path.join(dataDir, "license-runtime.json");
   process.env.SATHI_LOG_FILE = path.join(logDir, "server.log");
+}
+
+function mergeMissingEnvValues(targetFile, sourceFile) {
+  const target = readEnvValues(targetFile);
+  const source = readEnvValues(sourceFile);
+  const next = { ...target };
+  let changed = false;
+
+  for (const [key, value] of Object.entries(source)) {
+    if (String(value || "").trim() && !String(next[key] || "").trim()) {
+      next[key] = value;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    fs.writeFileSync(targetFile, `${Object.entries(next).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
+  }
+}
+
+function readEnvValues(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  return Object.fromEntries(
+    fs.readFileSync(filePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes("="))
+      .map((line) => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+      })
+  );
 }
 
 function sleep(ms) {
