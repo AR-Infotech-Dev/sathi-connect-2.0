@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 export function createLicenseService(options = {}) {
@@ -14,31 +13,8 @@ export function createLicenseService(options = {}) {
   const debugError = options.debugError || (() => {});
   const getIdentityExtras = options.getIdentityExtras || (() => ({}));
 
-  function getMachineId() {
-    const networkIds = Object.values(os.networkInterfaces())
-      .flat()
-      .filter((entry) => entry && !entry.internal && entry.mac && entry.mac !== "00:00:00:00:00:00")
-      .map((entry) => entry.mac)
-      .sort()
-      .join("|");
-    const rawId = [os.hostname(), os.platform(), os.arch(), os.cpus()?.[0]?.model || "", networkIds].join("|");
-    return crypto.createHash("sha256").update(rawId).digest("hex");
-  }
-
-  function getMacAddress() {
-    for (const entries of Object.values(os.networkInterfaces())) {
-      for (const entry of entries || []) {
-        const mac = String(entry.mac || "").trim();
-        if (!entry.internal && mac && mac !== "00:00:00:00:00:00") return mac.toUpperCase();
-      }
-    }
-    return "";
-  }
-
   function getIdentity() {
     return {
-      machineId: getMachineId(),
-      macAddress: getMacAddress(),
       tallyLicenseNumber: "",
       saathiClientId: "",
       ...getIdentityExtras()
@@ -108,9 +84,6 @@ export function createLicenseService(options = {}) {
   function verifyLicenseText(rawLicense, identity = getIdentity()) {
     const { file, payload } = parseLicenseFile(rawLicense);
 
-    if (payload.machineId !== identity.machineId) {
-      throw licenseError("machine_mismatch", "This license is for a different machine.");
-    }
     // if (identity.tallyLicenseNumber && payload.tallyLicense && String(payload.tallyLicense) !== String(identity.tallyLicenseNumber)) {
     //   throw licenseError("tally_mismatch", "This license does not match this Tally license number.");
     // }
@@ -122,7 +95,6 @@ export function createLicenseService(options = {}) {
 
     return {
       activated: true,
-      machineId: identity.machineId,
       license: {
         licenseNumber: payload.licenseNumber || "",
         licenseNumbers: parseLicenseNumbers(payload.licenseNumber),

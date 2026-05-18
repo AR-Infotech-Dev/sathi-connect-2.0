@@ -13,7 +13,8 @@
     "orders": "node src/index.js pending-orders",
     "fetch:lot": "node src/index.js fetch-lot",
     "pull:lot": "node src/index.js pull-lot",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:protected": "node scripts/build-protected.js"
   },
   "build": {
     "appId": "com.arinfotech.sathiconnect",
@@ -25,9 +26,10 @@
       "portable-license-flow/**/*",
       "config/**/*",
       "keys/**/*",
+      ".env",
       "package.json"
     ],
-    "asar": false,
+    "asar": true,
     "directories": {
       "output": "release 0.0.1"
     },
@@ -45,7 +47,8 @@
   },
   "devDependencies": {
     "electron": "^35.7.5",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "javascript-obfuscator": "^5.4.2"
   },
   "engines": {
     "node": ">=18"

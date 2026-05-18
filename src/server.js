@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { companySettingsToEnv, getCompanySettings, pickCompanySettings, saveCompanySettings } from "./company-settings.js";
@@ -109,6 +110,13 @@ async function handleLicenseRequest(request, response) {
   if (request.method === "GET" && url.pathname === "/api/license/status") {
     const license = await checkedLicenseStatus();
     sendJson(response, 200, { ok: true, license });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/license/activation-request") {
+    const body = await readJson(request);
+    const result = await sendActivationRequestEmail(body);
+    sendJson(response, 200, { ok: true, ...result });
     return true;
   }
 
@@ -397,6 +405,276 @@ function licenseGuardError(status, message, details = {}) {
 
 function normalizeLicenseValue(value) {
   return String(value || "").replace(/\s+/g, "").trim().toUpperCase();
+}
+
+async function sendActivationRequestEmail(body = {}) {
+  const request = normalizeActivationRequest(body);
+  validateActivationRequest(request);
+
+  const env = readEnv();
+  debugLog('env : ',{env});
+  const smtp = {
+    host: env.ACTIVATION_EMAIL_SMTP_HOST || "smtp.gmail.com",
+    port: Number(env.ACTIVATION_EMAIL_SMTP_PORT || 465),
+    user: env.ACTIVATION_EMAIL_USER || "",
+    pass: env.ACTIVATION_EMAIL_APP_PASSWORD || env.ACTIVATION_EMAIL_PASSWORD || "",
+    to: env.ACTIVATION_EMAIL_TO || env.ACTIVATION_EMAIL_USER || "",
+    from: env.ACTIVATION_EMAIL_FROM || env.ACTIVATION_EMAIL_USER || ""
+  };
+
+  if (!smtp.user || !smtp.pass || !smtp.to || !smtp.from) {
+    const error = new Error("Activation email is not configured. Add ACTIVATION_EMAIL_USER, ACTIVATION_EMAIL_APP_PASSWORD, and ACTIVATION_EMAIL_TO in settings .env.");
+    error.status = "activation_email_not_configured";
+    throw error;
+  }
+
+  const detailsText = activationRequestDetailsText(request);
+  const message = buildActivationEmailMessage({
+    from: smtp.from,
+    to: smtp.to,
+    subject: activationRequestSubject(request),
+    request,
+    detailsText
+  });
+
+  await sendSmtpMail(smtp, message);
+  return { message: "Activation request email sent." };
+}
+
+function normalizeActivationRequest(body = {}) {
+  return {
+    customerName: String(body.customerName || "").trim(),
+    companyName: String(body.companyName || "").trim(),
+    email: String(body.email || "").trim(),
+    phone: String(body.phone || "").trim(),
+    sathiLicence: String(body.sathiLicence || "").trim(),
+    tallySerialNumber: String(body.tallySerialNumber || "").trim(),
+    referenceId: String(body.referenceId || "").trim(),
+    requestedAt: new Date().toISOString()
+  };
+}
+
+function validateActivationRequest(request) {
+  const required = {
+    customerName: "Customer name is required.",
+    companyName: "Company name is required.",
+    email: "Email is required.",
+    phone: "Phone number is required.",
+    sathiLicence: "SATHI licence is required."
+  };
+
+  for (const [key, message] of Object.entries(required)) {
+    if (!request[key]) {
+      const error = new Error(message);
+      error.status = "invalid_activation_request";
+      throw error;
+    }
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.email)) {
+    const error = new Error("Valid email is required.");
+    error.status = "invalid_activation_request";
+    throw error;
+  }
+
+  if (!/^[+\d][\d\s()+-]{6,}$/.test(request.phone)) {
+    const error = new Error("Valid phone number is required.");
+    error.status = "invalid_activation_request";
+    throw error;
+  }
+}
+
+function activationRequestDetailsText(request) {
+  return [
+    "New Activation Request",
+    "",
+    `Customer name: ${request.customerName}`,
+    `Company name: ${request.companyName}`,
+    `Email: ${request.email}`,
+    `Phone number: ${request.phone}`,
+    `SATHI licence: ${request.sathiLicence}`,
+    `Tally serial number: ${request.tallySerialNumber || "-"}`,
+    `Reference ID: ${request.referenceId || "-"}`,
+    `Requested at: ${request.requestedAt}`
+  ].join("\n");
+}
+
+function activationRequestSubject(request) {
+  const companyName = request.companyName || "Unknown Company";
+  const tallySerial = request.tallySerialNumber || "-";
+  return `New Activation Request - ${companyName} - Tally ${tallySerial}`;
+}
+
+function buildActivationEmailMessage({ from, to, subject, request, detailsText }) {
+  const detailsHtml = detailsText.split("\n").map(escapeHtmlText).join("<br>");
+  const attachmentText = wrapBase64(Buffer.from(detailsText, "utf8").toString("base64"));
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#172033;">
+    <div style="max-width:720px;margin:0 auto;padding:24px;">
+      <div style="background:#ffffff;border:1px solid #dbe4ef;border-radius:8px;padding:22px;">
+        <h2 style="margin:0 0 12px;font-size:20px;">New Activation Request</h2>
+        <p style="margin:0 0 18px;color:#536273;">A customer has requested license activation.</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          ${activationEmailRow("Customer name", request.customerName)}
+          ${activationEmailRow("Company name", request.companyName)}
+          ${activationEmailRow("Email", request.email)}
+          ${activationEmailRow("Phone number", request.phone)}
+          ${activationEmailRow("SATHI licence", request.sathiLicence)}
+          ${activationEmailRow("Tally serial number", request.tallySerialNumber || "-")}
+          ${activationEmailRow("Reference ID", request.referenceId || "-")}
+          ${activationEmailRow("Requested at", request.requestedAt)}
+        </table>
+        <div id="activation-details" style="margin-top:18px;padding:14px;border-radius:6px;background:#f8fafc;border:1px solid #e2e8f0;font-family:Consolas,monospace;font-size:12px;line-height:1.55;">
+          ${detailsHtml}
+        </div>
+        <p style="margin:14px 0 0;color:#536273;font-size:13px;">Copy the block above, or open the attached activation-request.txt file.</p>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+  return [
+    `From: ${formatEmailAddress(from)}`,
+    `To: ${formatEmailAddress(to)}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: multipart/mixed; boundary=\"activation-request-mixed\"",
+    "",
+    "--activation-request-mixed",
+    "Content-Type: multipart/alternative; boundary=\"activation-request-boundary\"",
+    "",
+    "--activation-request-boundary",
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    detailsText,
+    "",
+    "--activation-request-boundary",
+    "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    html,
+    "",
+    "--activation-request-boundary--",
+    "",
+    "--activation-request-mixed",
+    "Content-Type: text/plain; charset=utf-8; name=\"activation-request.txt\"",
+    "Content-Transfer-Encoding: base64",
+    "Content-Disposition: attachment; filename=\"activation-request.txt\"",
+    "",
+    attachmentText,
+    "",
+    "--activation-request-mixed--"
+  ].join("\r\n");
+}
+
+function activationEmailRow(label, value) {
+  return `<tr>
+    <td style="width:190px;padding:9px 0;border-top:1px solid #eef2f7;color:#64748b;font-weight:700;">${escapeHtmlText(label)}</td>
+    <td style="padding:9px 0;border-top:1px solid #eef2f7;color:#172033;">${escapeHtmlText(value || "-")}</td>
+  </tr>`;
+}
+
+async function sendSmtpMail(smtp, message) {
+  const socket = tls.connect({
+    host: smtp.host,
+    port: smtp.port,
+    servername: smtp.host,
+    timeout: 30000
+  });
+
+  const read = createSmtpReader(socket);
+  const command = async (line, expected = [250]) => {
+    if (line) socket.write(`${line}\r\n`);
+    const response = await read();
+    const code = Number(response.slice(0, 3));
+    if (!expected.includes(code)) {
+      throw new Error(`SMTP command failed (${line || "connect"}): ${response}`);
+    }
+    return response;
+  };
+
+  try {
+    await command("", [220]);
+    await command("EHLO sathi-connect.local", [250]);
+    await command("AUTH LOGIN", [334]);
+    await command(Buffer.from(smtp.user).toString("base64"), [334]);
+    await command(Buffer.from(smtp.pass).toString("base64"), [235]);
+    await command(`MAIL FROM:<${smtp.from}>`, [250]);
+    await command(`RCPT TO:<${smtp.to}>`, [250, 251]);
+    await command("DATA", [354]);
+    socket.write(`${message}\r\n.\r\n`);
+    await command("", [250]);
+    await command("QUIT", [221]);
+  } finally {
+    socket.end();
+  }
+}
+
+function createSmtpReader(socket) {
+  let buffer = "";
+  const waiters = [];
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk) => {
+    buffer += chunk;
+    flushSmtpWaiters();
+  });
+  socket.on("error", (error) => {
+    while (waiters.length) waiters.shift().reject(error);
+  });
+  socket.on("timeout", () => {
+    const error = new Error("SMTP connection timed out.");
+    socket.destroy(error);
+  });
+
+  return function read() {
+    return new Promise((resolve, reject) => {
+      waiters.push({ resolve, reject });
+      flushSmtpWaiters();
+    });
+  };
+
+  function flushSmtpWaiters() {
+    while (waiters.length) {
+      const response = nextSmtpResponse();
+      if (!response) return;
+      waiters.shift().resolve(response);
+    }
+  }
+
+  function nextSmtpResponse() {
+    const lines = buffer.split(/\r?\n/);
+    if (lines.length < 2) return null;
+
+    let consumed = 0;
+    for (let index = 0; index < lines.length - 1; index += 1) {
+      consumed = index + 1;
+      if (/^\d{3}\s/.test(lines[index])) {
+        const response = lines.slice(0, consumed).join("\n");
+        buffer = lines.slice(consumed).join("\n");
+        return response;
+      }
+    }
+    return null;
+  }
+}
+
+function formatEmailAddress(value) {
+  return String(value || "").replace(/[\r\n<>]/g, "").trim();
+}
+
+function escapeHtmlText(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function wrapBase64(value) {
+  return String(value || "").replace(/.{1,76}/g, "$&\r\n").trim();
 }
 
 async function callTallyCompanyUdfs(response, body) {
@@ -1024,7 +1302,7 @@ async function callTallyVoucherStatus(response, body) {
   });
 
   try {
-    const companyName = body.companyName || body.scope?.companyName || env.TALLY_COMPANY_NAME || "";
+    const companyName = env.TALLY_COMPANY_NAME || body.companyName || "";
     const voucherNumber = body.voucherNumber || "";
     const result = await client.checkVoucherExists(
       companyName,
@@ -1041,7 +1319,7 @@ async function callTallyVoucherStatus(response, body) {
   } catch (error) {
     const entry = recordError("Tally", error, { action: "voucher-status", voucherNumber: body.voucherNumber });
     const log = recordTallyLog("voucher-status", "failed", {
-      companyName: body.companyName || body.scope?.companyName || env.TALLY_COMPANY_NAME || "",
+      companyName: env.TALLY_COMPANY_NAME || body.companyName || "",
       voucherNumber: body.voucherNumber || "",
       url: env.TALLY_URL || "http://127.0.0.1:9000",
       message: error.message,
@@ -1060,7 +1338,7 @@ async function callTallyPushVoucher(response, body) {
   });
 
   try {
-    const companyName = body.companyName || body.scope?.companyName || env.TALLY_COMPANY_NAME || "";
+    const companyName = env.TALLY_COMPANY_NAME || body.companyName || "";
     const billNumber = body.bill?.billNumber || body.bill?.voucherNumber || "";
     const storedItemMappings = getItemMappings(companyName);
     const requestItemMappings = body.itemMappings || {};
@@ -1144,7 +1422,7 @@ async function callTallyPushVoucher(response, body) {
   } catch (error) {
     const entry = recordError("Tally", error, { action: "push-voucher", billNumber: body.bill?.billNumber });
     const log = recordTallyLog("push-voucher", "failed", {
-      companyName: body.companyName || body.scope?.companyName || env.TALLY_COMPANY_NAME || "",
+      companyName: env.TALLY_COMPANY_NAME || body.companyName || "",
       voucherNumber: body.bill?.billNumber || body.bill?.voucherNumber || "",
       url: env.TALLY_URL || "http://127.0.0.1:9000",
       message: error.message,
