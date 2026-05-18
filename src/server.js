@@ -1198,11 +1198,13 @@ async function callSaathiRaw(response, action, requestHeaders, requestBody, scop
       tallyStatusUpdate,
       savedQueue,
       savedLotTraces,
-      sent: {
-        url: buildApiUrl(config.baseUrl, endpoint).toString(),
-        headers: maskHeaders(finalHeaders),
-        body: finalBody
-      },
+      ...(keepTechArtifacts() ? {
+        sent: {
+          url: buildApiUrl(config.baseUrl, endpoint).toString(),
+          headers: maskHeaders(finalHeaders),
+          body: finalBody
+        }
+      } : {}),
       rows: Array.isArray(data?.data) ? data.data : [],
       count: Array.isArray(data?.data) ? data.data.length : 0,
       status: data?.status || "",
@@ -1451,6 +1453,10 @@ async function callTallyBulkPush(response, body) {
   });
 
   sendJson(response, 200, { ok: true, results, log });
+}
+
+function keepTechArtifacts() {
+  return process.env.SATHI_KEEP_TECH_ARTIFACTS === "1";
 }
 
 function tallyPushMessage(result, verification) {

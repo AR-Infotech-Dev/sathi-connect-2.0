@@ -4,6 +4,7 @@ import path from "node:path";
 const DATA_DIR = process.env.SATHI_DATA_DIR || "data";
 const ARCHIVE_FILE = path.join(DATA_DIR, "sathi-response-archive.json");
 const MAX_ARCHIVE_ITEMS = 300;
+const KEEP_TECH_ARTIFACTS = process.env.SATHI_KEEP_TECH_ARTIFACTS === "1";
 
 export function readArchive() {
   const filePath = path.resolve(ARCHIVE_FILE);
@@ -17,7 +18,7 @@ export function readArchive() {
 }
 
 export function saveSathiResponse(action, request, response) {
-  const archive = readArchive();
+  const archive = KEEP_TECH_ARTIFACTS ? readArchive() : readArchive().map(sanitizeArchiveEntry);
   const entry = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     action,
@@ -25,7 +26,7 @@ export function saveSathiResponse(action, request, response) {
     status: response?.status || response?.statusCode || "",
     message: response?.message || "",
     savedAt: new Date().toISOString(),
-    request,
+    request: KEEP_TECH_ARTIFACTS ? request : summarizeRequest(request),
     response
   };
 
@@ -41,6 +42,35 @@ export function saveSathiResponse(action, request, response) {
   }
 
   return entry;
+}
+
+function sanitizeArchiveEntry(entry = {}) {
+  return {
+    ...entry,
+    request: summarizeRequest(entry.request || {})
+  };
+}
+
+function summarizeRequest(request = {}) {
+  return {
+    mode: request.mode || "",
+    action: request.action || "",
+    url: request.url ? stripQuery(request.url) : "",
+    voucherNumber: request.body?.voucherNumber || request.voucherNumber || "",
+    ownerCode: request.body?.ownerCode || "",
+    locationCode: request.body?.locationCode || "",
+    stateCode: request.body?.stateCode || ""
+  };
+}
+
+function stripQuery(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    return parsed.toString();
+  } catch {
+    return String(url || "").split("?")[0];
+  }
 }
 
 export function clearArchive() {

@@ -110,6 +110,7 @@ export function findLotTracesForSale(companyName, inventoryRows = []) {
 export function recordPortalPush(companyName, payload, response, status = "created") {
   const db = getDb();
   const voucherNumber = response?.response?.data?.voucherNumber || response?.data?.voucherNumber || "";
+  const storedPayload = shouldKeepTechArtifacts() ? payload || {} : summarizePortalPayload(payload);
   const statement = db.prepare(`
     INSERT INTO portal_push_log (
       company_name,
@@ -130,9 +131,36 @@ export function recordPortalPush(companyName, payload, response, status = "creat
     payload?.buyerCode || "",
     payload?.originalOwner || "",
     status,
-    JSON.stringify(payload || {}),
+    JSON.stringify(storedPayload),
     JSON.stringify(response || {})
   );
+}
+
+function shouldKeepTechArtifacts() {
+  return process.env.SATHI_KEEP_TECH_ARTIFACTS === "1";
+}
+
+function summarizePortalPayload(payload = {}) {
+  return {
+    sourceVoucherNumber: payload.sourceVoucherNumber || "",
+    sourceReference: payload.sourceReference || "",
+    sourceVoucherDate: payload.sourceVoucherDate || "",
+    buyerCode: payload.buyerCode || "",
+    ownerCode: payload.ownerCode || "",
+    locationCode: payload.locationCode || "",
+    originalOwner: payload.originalOwner || "",
+    isRetailSell: payload.isRetailSell || "",
+    sellerRole: payload.sellerRole || "",
+    buyerRole: payload.buyerRole || "",
+    lotTypeStockDetails: Array.isArray(payload.lotTypeStockDetails)
+      ? payload.lotTypeStockDetails.map((lot) => ({
+          lotNum: lot.lotNum || "",
+          certificationClass: lot.certificationClass || "",
+          packingSize: lot.packingSize || "",
+          quantity: lot.quantity ?? ""
+        }))
+      : []
+  };
 }
 
 export function upsertSathiOrderQueue(companyName, licenceCode, action, data) {
