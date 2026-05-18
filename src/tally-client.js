@@ -121,21 +121,28 @@ export class TallyClient {
     };
   }
 
-  async fetchPortalSalesVouchers(companyName, voucherTypeName, period = {}) {
+  async fetchPortalSalesVouchers(companyName, voucherTypeName, period = {}, options = {}) {
     await this.ensurePortReachable();
     const response = await this.request(salesVoucherListEnvelope(companyName, voucherTypeName));
     const vouchers = filterVouchersByPeriod(parseSalesVouchers(response), period);
     const ledgerResponse = await this.request(partyLedgerLicenseEnvelope(companyName));
     const partyDetails = parsePartyDetails(ledgerResponse);
+    const isCottonSale = Boolean(options.isCottonSale);
     return {
       companyName,
       voucherTypeName,
-      vouchers: vouchers.map((voucher) => ({
-        ...voucher,
-        buyerLicense: partyDetails[voucher.partyLedgerName]?.license || "",
-        buyerPartyType: partyDetails[voucher.partyLedgerName]?.partyType || "",
-        partyDetails: partyDetails[voucher.partyLedgerName] || {}
-      })),
+      isCottonSale,
+      vouchers: vouchers.map((voucher) => {
+        const party = partyDetails[voucher.partyLedgerName] || {};
+        return {
+          ...voucher,
+          isCottonSale,
+          buyerLicense: isCottonSale ? party.cottonLicense || "" : party.license || "",
+          buyerLicenseSource: isCottonSale ? "SATHI_TALLY_PARTY_COTTON_LIC" : "SATHI_TALLY_PARTY_LIC",
+          buyerPartyType: party.partyType || "",
+          partyDetails: party
+        };
+      }),
       rawPreview: response.slice(0, 2000)
     };
   }
@@ -152,10 +159,13 @@ export class TallyClient {
         rawPreview: ""
       };
     }
+    const typeFlags = await this.fetchSalesVoucherTypeFlags(companyName, names);
     const results = [];
 
     for (const name of names) {
-      results.push(await this.fetchPortalSalesVouchers(companyName, name, period));
+      results.push(await this.fetchPortalSalesVouchers(companyName, name, period, {
+        isCottonSale: Boolean(typeFlags[normalizeVoucherTypeName(name)]?.isCottonSale)
+      }));
     }
 
     const vouchers = results.flatMap((result) => result.vouchers || []);
@@ -163,9 +173,28 @@ export class TallyClient {
       companyName,
       voucherTypeName: names[0] || "",
       voucherTypeNames: names,
+      voucherTypeFlags: typeFlags,
       vouchers,
       rawPreview: results.map((result) => result.rawPreview).filter(Boolean).join("\n\n").slice(0, 2000)
     };
+  }
+
+  async fetchSalesVoucherTypeFlags(companyName, voucherTypeNames = []) {
+    try {
+      const result = await this.fetchSathiVoucherTypes(companyName);
+      const wanted = new Set(voucherTypeNames.map((name) => normalizeVoucherTypeName(name)));
+      return Object.fromEntries((result.salesScopes || [])
+        .filter((entry) => !wanted.size || wanted.has(normalizeVoucherTypeName(entry.name)))
+        .map((entry) => [
+          normalizeVoucherTypeName(entry.name),
+          {
+            name: entry.name,
+            isCottonSale: isYes(entry.fields?.ISCottonSaleVTYP)
+          }
+        ]));
+    } catch {
+      return {};
+    }
   }
 
   async updateVoucherSathiFields(companyName, voucher = {}) {
@@ -384,7 +413,8 @@ export const SATHI_VOUCHER_TYPE_UDF_NAMES = [
   "SATHI_LOCATION_CODE",
   "SATHI_STATE_CODE",
   "SATHI_BASE_URL",
-  "SATHI_TALLY_PURCHASE_LEDGER"
+  "SATHI_TALLY_PURCHASE_LEDGER",
+  "ISCottonSaleVTYP"
 ];
 
 const PORTAL_SALE_TYPE_UDF_NAMES = [
@@ -548,6 +578,10 @@ function normalizeScopeClientId(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function normalizeVoucherTypeName(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function isYes(value) {
   return ["YES", "Y", "TRUE", "1"].includes(String(value || "").trim().toUpperCase());
 }
@@ -633,7 +667,7 @@ function partyLedgerLicenseEnvelope(companyName) {
         <TDLMESSAGE>
           <COLLECTION NAME="Sathi Party Licences" ISMODIFY="No">
             <TYPE>Ledger</TYPE>
-            <FETCH>Name,SATHI_TALLY_PARTY_LIC,SATHI_TALLY_PARTY_TYPE,LEDBlockCode,LEDBlockName,LEDDisCode,LEDDiscName,LEDPlotNo,LEDVillCode,LEDVillName</FETCH>
+            <FETCH>Name,SATHI_TALLY_PARTY_LIC,SATHI_TALLY_PARTY_COTTON_LIC,SATHI_TALLY_PARTY_TYPE,LEDBlockCode,LEDBlockName,LEDDisCode,LEDDiscName,LEDPlotNo,LEDVillCode,LEDVillName</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -736,10 +770,12 @@ function parsePartyDetails(xml) {
   while ((match = regex.exec(xml)) !== null) {
     const name = decodeXml(attributeValue(match[1], "NAME") || extractTagValues(match[2], "NAME")[0] || "").trim();
     const license = extractCompanyUdfValue(match[2], "SATHI_TALLY_PARTY_LIC");
+    const cottonLicense = extractCompanyUdfValue(match[2], "SATHI_TALLY_PARTY_COTTON_LIC");
     const partyType = extractCompanyUdfValue(match[2], "SATHI_TALLY_PARTY_TYPE");
     if (name) {
       ledgers[name] = {
         license,
+        cottonLicense,
         partyType,
         blockCode: extractCompanyUdfValue(match[2], "LEDBlockCode"),
         blockName: extractCompanyUdfValue(match[2], "LEDBlockName"),
