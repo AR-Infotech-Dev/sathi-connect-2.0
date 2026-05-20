@@ -1,103 +1,67 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 
 const DATA_DIR = process.env.SATHI_DATA_DIR || "data";
-const DB_FILE = process.env.SATHI_DB_FILE || path.join(DATA_DIR, "saathi-connect.sqlite");
+const STORE_FILE = process.env.SATHI_DB_JSON_FILE || path.join(DATA_DIR, "saathi-connect-store.json");
 
-let dbInstance = null;
+const EMPTY_STORE = {
+  lotTrace: [],
+  portalPushLog: [],
+  sathiOrderQueue: []
+};
+
+let storeCache = null;
 
 export function getDb() {
-  if (dbInstance) return dbInstance;
-
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  dbInstance = new DatabaseSync(path.resolve(DB_FILE));
-  dbInstance.exec("PRAGMA journal_mode = WAL");
-  dbInstance.exec("PRAGMA foreign_keys = ON");
-  migrate(dbInstance);
-  return dbInstance;
+  throw new Error("The SQLite runtime is not available in this Windows-compatible build.");
 }
 
 export function upsertLotTraces(companyName, bill = {}, mapping = {}) {
   const lots = Array.isArray(bill.lotData) ? bill.lotData : [];
   if (!companyName || !lots.length) return [];
 
-  const db = getDb();
-  const statement = db.prepare(`
-    INSERT INTO lot_trace (
-      company_name,
-      lot_num,
-      stock_item_name,
-      portal_item_name,
-      packing_size,
-      original_owner,
-      supplier_name,
-      inward_voucher_number,
-      inward_date,
-      buyer_code,
-      raw_json,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(company_name, lot_num, stock_item_name) DO UPDATE SET
-      portal_item_name = excluded.portal_item_name,
-      packing_size = excluded.packing_size,
-      original_owner = excluded.original_owner,
-      supplier_name = excluded.supplier_name,
-      inward_voucher_number = excluded.inward_voucher_number,
-      inward_date = excluded.inward_date,
-      buyer_code = excluded.buyer_code,
-      raw_json = excluded.raw_json,
-      updated_at = datetime('now')
-  `);
-
+  const store = readStore();
   const saved = [];
-  db.exec("BEGIN");
-  try {
-    for (const lot of lots) {
-      const row = lotTraceRow(companyName, bill, lot, mapping);
-      if (!row.lotNum || !row.originalOwner) continue;
-      statement.run(
-        row.companyName,
-        row.lotNum,
-        row.stockItemName,
-        row.portalItemName,
-        row.packingSize,
-        row.originalOwner,
-        row.supplierName,
-        row.inwardVoucherNumber,
-        row.inwardDate,
-        row.buyerCode,
-        JSON.stringify(row.raw)
-      );
-      saved.push(row);
-    }
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
+  for (const lot of lots) {
+    const row = lotTraceRow(companyName, bill, lot, mapping);
+    if (!row.lotNum || !row.originalOwner) continue;
+    const now = new Date().toISOString();
+    const index = store.lotTrace.findIndex((entry) =>
+      entry.company_name === row.companyName
+      && entry.lot_num === row.lotNum
+      && entry.stock_item_name === row.stockItemName
+    );
+    const record = {
+      id: index >= 0 ? store.lotTrace[index].id : nextId(store.lotTrace),
+      company_name: row.companyName,
+      lot_num: row.lotNum,
+      stock_item_name: row.stockItemName,
+      portal_item_name: row.portalItemName,
+      packing_size: row.packingSize,
+      original_owner: row.originalOwner,
+      supplier_name: row.supplierName,
+      inward_voucher_number: row.inwardVoucherNumber,
+      inward_date: row.inwardDate,
+      buyer_code: row.buyerCode,
+      raw_json: JSON.stringify(row.raw),
+      created_at: index >= 0 ? store.lotTrace[index].created_at : now,
+      updated_at: now
+    };
+    if (index >= 0) store.lotTrace[index] = record;
+    else store.lotTrace.push(record);
+    saved.push(row);
   }
-
+  writeStore(store);
   return saved;
 }
 
 export function findLotTrace(companyName, lotNum, stockItemName = "") {
   if (!companyName || !lotNum) return null;
-  const db = getDb();
-  const exact = stockItemName
-    ? db.prepare(`
-        SELECT * FROM lot_trace
-        WHERE company_name = ? AND lot_num = ? AND stock_item_name = ?
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `).get(companyName, lotNum, stockItemName)
-    : null;
-  const row = exact || db.prepare(`
-    SELECT * FROM lot_trace
-    WHERE company_name = ? AND lot_num = ?
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `).get(companyName, lotNum);
-  return row ? mapLotTrace(row) : null;
+  const rows = readStore().lotTrace
+    .filter((row) => row.company_name === companyName && row.lot_num === lotNum)
+    .filter((row) => !stockItemName || row.stock_item_name === stockItemName)
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  return rows[0] ? mapLotTrace(rows[0]) : null;
 }
 
 export function findLotTracesForSale(companyName, inventoryRows = []) {
@@ -108,32 +72,22 @@ export function findLotTracesForSale(companyName, inventoryRows = []) {
 }
 
 export function recordPortalPush(companyName, payload, response, status = "created") {
-  const db = getDb();
+  const store = readStore();
   const voucherNumber = response?.response?.data?.voucherNumber || response?.data?.voucherNumber || "";
   const storedPayload = shouldKeepTechArtifacts() ? payload || {} : summarizePortalPayload(payload);
-  const statement = db.prepare(`
-    INSERT INTO portal_push_log (
-      company_name,
-      tally_voucher_number,
-      sathi_voucher_number,
-      buyer_code,
-      original_owner,
-      status,
-      payload_json,
-      response_json,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `);
-  statement.run(
-    companyName || "",
-    payload?.sourceVoucherNumber || "",
-    voucherNumber,
-    payload?.buyerCode || "",
-    payload?.originalOwner || "",
+  store.portalPushLog.push({
+    id: nextId(store.portalPushLog),
+    company_name: companyName || "",
+    tally_voucher_number: payload?.sourceVoucherNumber || "",
+    sathi_voucher_number: voucherNumber,
+    buyer_code: payload?.buyerCode || "",
+    original_owner: payload?.originalOwner || "",
     status,
-    JSON.stringify(storedPayload),
-    JSON.stringify(response || {})
-  );
+    payload_json: JSON.stringify(storedPayload),
+    response_json: JSON.stringify(response || {}),
+    created_at: new Date().toISOString()
+  });
+  writeStore(store);
 }
 
 function shouldKeepTechArtifacts() {
@@ -167,93 +121,52 @@ export function upsertSathiOrderQueue(companyName, licenceCode, action, data) {
   const rows = sathiQueueRowsFromResponse(data);
   if (!companyName || !licenceCode || !rows.length) return [];
 
-  const db = getDb();
-  const statement = db.prepare(`
-    INSERT INTO sathi_order_queue (
-      company_name,
-      licence_code,
-      voucher_number,
-      voucher_date,
-      seller_code,
-      seller_name,
-      buyer_code,
-      buyer_name,
-      total_bill_price,
-      queue_status,
-      source_action,
-      order_json,
-      lot_json,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(company_name, licence_code, voucher_number) DO UPDATE SET
-      voucher_date = CASE WHEN excluded.voucher_date != '' THEN excluded.voucher_date ELSE sathi_order_queue.voucher_date END,
-      seller_code = CASE WHEN excluded.seller_code != '' THEN excluded.seller_code ELSE sathi_order_queue.seller_code END,
-      seller_name = CASE WHEN excluded.seller_name != '' THEN excluded.seller_name ELSE sathi_order_queue.seller_name END,
-      buyer_code = CASE WHEN excluded.buyer_code != '' THEN excluded.buyer_code ELSE sathi_order_queue.buyer_code END,
-      buyer_name = CASE WHEN excluded.buyer_name != '' THEN excluded.buyer_name ELSE sathi_order_queue.buyer_name END,
-      total_bill_price = CASE WHEN excluded.total_bill_price != '' THEN excluded.total_bill_price ELSE sathi_order_queue.total_bill_price END,
-      queue_status = CASE
-        WHEN excluded.lot_json != '{}' THEN excluded.queue_status
-        WHEN sathi_order_queue.lot_json != '{}' THEN sathi_order_queue.queue_status
-        ELSE excluded.queue_status
-      END,
-      source_action = excluded.source_action,
-      order_json = excluded.order_json,
-      lot_json = CASE WHEN excluded.lot_json != '{}' THEN excluded.lot_json ELSE sathi_order_queue.lot_json END,
-      updated_at = datetime('now')
-  `);
-
+  const store = readStore();
   const saved = [];
-  db.exec("BEGIN");
-  try {
-    for (const row of rows) {
-      const normalized = sathiQueueRow(companyName, licenceCode, action, row);
-      if (!normalized.voucherNumber) continue;
-      statement.run(
-        normalized.companyName,
-        normalized.licenceCode,
-        normalized.voucherNumber,
-        normalized.voucherDate,
-        normalized.sellerCode,
-        normalized.sellerName,
-        normalized.buyerCode,
-        normalized.buyerName,
-        normalized.totalBillPrice,
-        normalized.queueStatus,
-        normalized.sourceAction,
-        JSON.stringify(normalized.order),
-        JSON.stringify(normalized.lot)
-      );
-      saved.push(normalized);
-    }
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
+  for (const row of rows) {
+    const normalized = sathiQueueRow(companyName, licenceCode, action, row);
+    if (!normalized.voucherNumber) continue;
+    const now = new Date().toISOString();
+    const index = store.sathiOrderQueue.findIndex((entry) =>
+      entry.company_name === normalized.companyName
+      && entry.licence_code === normalized.licenceCode
+      && entry.voucher_number === normalized.voucherNumber
+    );
+    const existing = index >= 0 ? store.sathiOrderQueue[index] : {};
+    const record = {
+      id: existing.id || nextId(store.sathiOrderQueue),
+      company_name: normalized.companyName,
+      licence_code: normalized.licenceCode,
+      voucher_number: normalized.voucherNumber,
+      voucher_date: normalized.voucherDate || existing.voucher_date || "",
+      seller_code: normalized.sellerCode || existing.seller_code || "",
+      seller_name: normalized.sellerName || existing.seller_name || "",
+      buyer_code: normalized.buyerCode || existing.buyer_code || "",
+      buyer_name: normalized.buyerName || existing.buyer_name || "",
+      total_bill_price: normalized.totalBillPrice || existing.total_bill_price || "",
+      queue_status: Object.keys(normalized.lot).length ? normalized.queueStatus : (existing.queue_status || normalized.queueStatus),
+      source_action: normalized.sourceAction,
+      order_json: JSON.stringify(normalized.order),
+      lot_json: Object.keys(normalized.lot).length ? JSON.stringify(normalized.lot) : (existing.lot_json || "{}"),
+      created_at: existing.created_at || now,
+      updated_at: now
+    };
+    if (index >= 0) store.sathiOrderQueue[index] = record;
+    else store.sathiOrderQueue.push(record);
+    saved.push(normalized);
   }
-
+  writeStore(store);
   return saved;
 }
 
 export function listSathiOrderQueue(filters = {}) {
-  const db = getDb();
-  const clauses = [];
-  const params = [];
-
-  if (filters.companyName) {
-    clauses.push("company_name = ?");
-    params.push(filters.companyName);
-  }
-  if (filters.licenceCode) {
-    clauses.push("licence_code = ?");
-    params.push(filters.licenceCode);
-  }
-
-  const rows = db.prepare(`
-    SELECT * FROM sathi_order_queue
-    ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
-    ORDER BY updated_at DESC, created_at DESC
-  `).all(...params);
+  const rows = readStore().sathiOrderQueue
+    .filter((row) => !filters.companyName || row.company_name === filters.companyName)
+    .filter((row) => !filters.licenceCode || row.licence_code === filters.licenceCode)
+    .sort((a, b) =>
+      String(b.updated_at || "").localeCompare(String(a.updated_at || ""))
+      || String(b.created_at || "").localeCompare(String(a.created_at || ""))
+    );
 
   const orders = [];
   const lotBills = [];
@@ -294,154 +207,85 @@ export function listSathiOrderQueue(filters = {}) {
 }
 
 export function listLotTraceReport(filters = {}) {
-  const db = getDb();
-  const where = filters.companyName ? "WHERE company_name = ?" : "";
-  const params = filters.companyName ? [filters.companyName] : [];
-  return db.prepare(`
-    SELECT * FROM lot_trace
-    ${where}
-    ORDER BY inward_date DESC, updated_at DESC, lot_num ASC
-  `).all(...params).filter((row) => reportDateMatches(row.inward_date || row.updated_at, filters)).filter((row) => {
-    const lotQuery = String(filters.lotNum || "").trim().toUpperCase();
-    if (!lotQuery) return true;
-    return String(row.lot_num || "").toUpperCase().includes(lotQuery);
-  }).map((row) => {
-    const mapped = mapLotTrace(row);
-    return {
-      ...mapped,
+  return readStore().lotTrace
+    .filter((row) => !filters.companyName || row.company_name === filters.companyName)
+    .sort((a, b) =>
+      String(b.inward_date || b.updated_at || "").localeCompare(String(a.inward_date || a.updated_at || ""))
+      || String(a.lot_num || "").localeCompare(String(b.lot_num || ""))
+    )
+    .filter((row) => reportDateMatches(row.inward_date || row.updated_at, filters))
+    .filter((row) => {
+      const lotQuery = String(filters.lotNum || "").trim().toUpperCase();
+      if (!lotQuery) return true;
+      return String(row.lot_num || "").toUpperCase().includes(lotQuery);
+    })
+    .map((row) => ({
+      ...mapLotTrace(row),
       raw: parseJson(row.raw_json, {})
-    };
-  });
+    }));
 }
 
 export function listPortalPushReport(filters = {}) {
-  const db = getDb();
-  const { where, params } = reportWhere(filters, "created_at", "company_name");
-  return db.prepare(`
-    SELECT * FROM portal_push_log
-    ${where}
-    ORDER BY created_at DESC, id DESC
-  `).all(...params).map((row) => ({
-    id: row.id,
-    companyName: row.company_name,
-    tallyVoucherNumber: row.tally_voucher_number,
-    sathiVoucherNumber: row.sathi_voucher_number,
-    buyerCode: row.buyer_code,
-    originalOwner: row.original_owner,
-    status: row.status,
-    payload: parseJson(row.payload_json, {}),
-    response: parseJson(row.response_json, {}),
-    createdAt: row.created_at
-  }));
+  return readStore().portalPushLog
+    .filter((row) => !filters.companyName || row.company_name === filters.companyName)
+    .filter((row) => reportDateMatches(row.created_at, filters))
+    .sort((a, b) =>
+      String(b.created_at || "").localeCompare(String(a.created_at || ""))
+      || Number(b.id || 0) - Number(a.id || 0)
+    )
+    .map((row) => ({
+      id: row.id,
+      companyName: row.company_name,
+      tallyVoucherNumber: row.tally_voucher_number,
+      sathiVoucherNumber: row.sathi_voucher_number,
+      buyerCode: row.buyer_code,
+      originalOwner: row.original_owner,
+      status: row.status,
+      payload: parseJson(row.payload_json, {}),
+      response: parseJson(row.response_json, {}),
+      createdAt: row.created_at
+    }));
 }
 
 export function lotTraceKey(row = {}) {
   return `${row.lotNum || ""}::${row.stockItemName || ""}`;
 }
 
-function migrate(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS company_settings (
-      company_name TEXT NOT NULL,
-      setting_key TEXT NOT NULL,
-      setting_value TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (company_name, setting_key)
-    );
-
-    CREATE TABLE IF NOT EXISTS item_mappings (
-      company_name TEXT NOT NULL,
-      item_key TEXT NOT NULL,
-      portal_name TEXT,
-      tally_item_name TEXT,
-      create_new INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (company_name, item_key)
-    );
-
-    CREATE TABLE IF NOT EXISTS lot_trace (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_name TEXT NOT NULL,
-      lot_num TEXT NOT NULL,
-      stock_item_name TEXT NOT NULL DEFAULT '',
-      portal_item_name TEXT NOT NULL DEFAULT '',
-      packing_size TEXT NOT NULL DEFAULT '',
-      original_owner TEXT NOT NULL DEFAULT '',
-      supplier_name TEXT NOT NULL DEFAULT '',
-      inward_voucher_number TEXT NOT NULL DEFAULT '',
-      inward_date TEXT NOT NULL DEFAULT '',
-      buyer_code TEXT NOT NULL DEFAULT '',
-      raw_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(company_name, lot_num, stock_item_name)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_lot_trace_lookup
-      ON lot_trace(company_name, lot_num, stock_item_name);
-
-    CREATE TABLE IF NOT EXISTS sathi_response_archive (
-      id TEXT PRIMARY KEY,
-      action TEXT NOT NULL,
-      request_json TEXT NOT NULL DEFAULT '{}',
-      response_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS tally_operation_log (
-      id TEXT PRIMARY KEY,
-      action TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT '',
-      company_name TEXT NOT NULL DEFAULT '',
-      voucher_number TEXT NOT NULL DEFAULT '',
-      message TEXT NOT NULL DEFAULT '',
-      raw_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS portal_push_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_name TEXT NOT NULL DEFAULT '',
-      tally_voucher_number TEXT NOT NULL DEFAULT '',
-      sathi_voucher_number TEXT NOT NULL DEFAULT '',
-      buyer_code TEXT NOT NULL DEFAULT '',
-      original_owner TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT '',
-      payload_json TEXT NOT NULL DEFAULT '{}',
-      response_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS sathi_order_queue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_name TEXT NOT NULL DEFAULT '',
-      licence_code TEXT NOT NULL DEFAULT '',
-      voucher_number TEXT NOT NULL DEFAULT '',
-      voucher_date TEXT NOT NULL DEFAULT '',
-      seller_code TEXT NOT NULL DEFAULT '',
-      seller_name TEXT NOT NULL DEFAULT '',
-      buyer_code TEXT NOT NULL DEFAULT '',
-      buyer_name TEXT NOT NULL DEFAULT '',
-      total_bill_price TEXT NOT NULL DEFAULT '',
-      queue_status TEXT NOT NULL DEFAULT '',
-      source_action TEXT NOT NULL DEFAULT '',
-      order_json TEXT NOT NULL DEFAULT '{}',
-      lot_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(company_name, licence_code, voucher_number)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_sathi_order_queue_scope
-      ON sathi_order_queue(company_name, licence_code, updated_at);
-  `);
-  ensureColumn(db, "lot_trace", "packing_size", "TEXT NOT NULL DEFAULT ''");
+function readStore() {
+  if (storeCache) return storeCache;
+  const absolutePath = path.resolve(STORE_FILE);
+  if (!fs.existsSync(absolutePath)) {
+    storeCache = cloneStore(EMPTY_STORE);
+    return storeCache;
+  }
+  try {
+    storeCache = normalizeStore(JSON.parse(fs.readFileSync(absolutePath, "utf8")));
+  } catch {
+    storeCache = cloneStore(EMPTY_STORE);
+  }
+  return storeCache;
 }
 
-function ensureColumn(db, tableName, columnName, definition) {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-  if (columns.some((column) => column.name === columnName)) return;
-  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+function writeStore(store) {
+  storeCache = normalizeStore(store);
+  fs.mkdirSync(path.dirname(path.resolve(STORE_FILE)), { recursive: true });
+  fs.writeFileSync(path.resolve(STORE_FILE), `${JSON.stringify(storeCache, null, 2)}\n`);
+}
+
+function normalizeStore(store = {}) {
+  return {
+    lotTrace: Array.isArray(store.lotTrace) ? store.lotTrace : [],
+    portalPushLog: Array.isArray(store.portalPushLog) ? store.portalPushLog : [],
+    sathiOrderQueue: Array.isArray(store.sathiOrderQueue) ? store.sathiOrderQueue : []
+  };
+}
+
+function cloneStore(store) {
+  return JSON.parse(JSON.stringify(store));
+}
+
+function nextId(rows) {
+  return rows.reduce((max, row) => Math.max(max, Number(row.id) || 0), 0) + 1;
 }
 
 function lotTraceRow(companyName, bill, lot, mapping) {
@@ -524,29 +368,6 @@ function sathiQueueRow(companyName, licenceCode, action, row = {}) {
     sourceAction: action,
     order: normalizedOrder,
     lot: isLotAction ? { ...row, licenceCode } : {}
-  };
-}
-
-function reportWhere(filters = {}, dateColumn, companyColumn) {
-  const clauses = [];
-  const params = [];
-
-  if (filters.companyName) {
-    clauses.push(`${companyColumn} = ?`);
-    params.push(filters.companyName);
-  }
-  if (filters.fromDate) {
-    clauses.push(`date(${dateColumn}) >= date(?)`);
-    params.push(filters.fromDate);
-  }
-  if (filters.toDate) {
-    clauses.push(`date(${dateColumn}) <= date(?)`);
-    params.push(filters.toDate);
-  }
-
-  return {
-    where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
-    params
   };
 }
 
