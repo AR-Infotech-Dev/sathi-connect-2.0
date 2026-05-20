@@ -6,6 +6,7 @@ import JavaScriptObfuscator from "javascript-obfuscator";
 const rootDir = path.resolve(".");
 const buildDir = path.join(rootDir, "build", "protected-app");
 const outputDir = path.join(rootDir, "release 0.0.1");
+const builderArgs = process.argv.slice(2);
 
 const copyEntries = [
   "electron",
@@ -49,6 +50,7 @@ rewritePackageConfig();
 obfuscateJavaScriptFiles();
 checkObfuscatedJavaScript();
 runElectronBuilder();
+organizeFinalOutput();
 
 function cleanBuildDir() {
   assertInside(rootDir, buildDir);
@@ -75,7 +77,7 @@ function rewritePackageConfig() {
     start: pkg.scripts?.start || "electron ."
   };
   pkg.devDependencies = {
-    electron: String(pkg.devDependencies?.electron || "35.7.5").replace(/^[^\d]*/, "")
+    electron: String(pkg.devDependencies?.electron || "22.3.27").replace(/^[^\d]*/, "")
   };
   pkg.build = {
     ...pkg.build,
@@ -89,7 +91,7 @@ function rewritePackageConfig() {
 }
 
 function obfuscateJavaScriptFiles() {
-  const files = listFiles(buildDir).filter((file) => file.endsWith(".js"));
+  const files = listFiles(buildDir).filter((file) => file.endsWith(".js") || file.endsWith(".cjs"));
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     const relativePath = path.relative(buildDir, file).replace(/\\/g, "/");
@@ -122,7 +124,7 @@ function checkObfuscatedJavaScript() {
     "src/tally-client.js",
     "src/server.js",
     "public/app.js",
-    "electron/main.js"
+    "electron/main.cjs"
   ];
 
   for (const file of files) {
@@ -139,13 +141,84 @@ function checkObfuscatedJavaScript() {
 function runElectronBuilder() {
   const command = process.execPath;
   const builderCli = path.join(rootDir, "node_modules", "electron-builder", "cli.js");
-  const result = spawnSync(command, [builderCli, "--projectDir", buildDir], {
+  const result = spawnSync(command, [builderCli, "--projectDir", buildDir, "--win", ...builderArgs], {
     cwd: rootDir,
     stdio: "inherit",
     shell: false
   });
   if (result.status !== 0) {
     throw new Error("electron-builder failed for protected build.");
+  }
+}
+
+function organizeFinalOutput() {
+  const arch = builderArgs.includes("--x64") ? "x64" : "ia32";
+  const bitLabel = arch === "x64" ? "64 bit" : "32 bit";
+  const installerArch = arch === "x64" ? "x64" : "ia32";
+  const sourceInstaller = path.join(outputDir, `Sathi Connect Setup 0.1.3 ${installerArch}.exe`);
+  const sourceMainDir = path.join(outputDir, arch === "x64" ? "win-unpacked" : "win-ia32-unpacked");
+  const finalArchDir = path.join(outputDir, bitLabel);
+  const finalSetupDir = path.join(finalArchDir, "setup");
+  const finalMainDir = path.join(finalArchDir, "main");
+  const finalInstaller = path.join(finalSetupDir, `Sathi Connect Setup 0.1.3 (${bitLabel}).exe`);
+
+  if (!fs.existsSync(sourceInstaller)) {
+    throw new Error(`Missing installer output: ${sourceInstaller}`);
+  }
+  if (!fs.existsSync(sourceMainDir)) {
+    throw new Error(`Missing unpacked app output: ${sourceMainDir}`);
+  }
+
+  assertInside(outputDir, finalArchDir);
+  fs.rmSync(finalArchDir, { recursive: true, force: true });
+  fs.mkdirSync(finalSetupDir, { recursive: true });
+  fs.mkdirSync(finalMainDir, { recursive: true });
+  fs.copyFileSync(sourceInstaller, finalInstaller);
+  copyDirectoryContents(sourceMainDir, finalMainDir);
+  console.log(`Prepared final ${bitLabel} output at ${finalArchDir}`);
+  removeIntermediateOutput(arch);
+}
+
+function copyDirectoryContents(sourceDir, destinationDir) {
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const source = path.join(sourceDir, entry.name);
+    const destination = path.join(destinationDir, entry.name);
+    if (entry.isDirectory()) {
+      fs.cpSync(source, destination, { recursive: true });
+    } else {
+      fs.copyFileSync(source, destination);
+    }
+  }
+}
+
+function removeIntermediateOutput(arch) {
+  const names = [
+    arch === "x64" ? "win-unpacked" : "win-ia32-unpacked",
+    `Sathi Connect Setup 0.1.3 ${arch === "x64" ? "x64" : "ia32"}.exe`,
+    `Sathi Connect Setup 0.1.3 ${arch === "x64" ? "x64" : "ia32"}.exe.blockmap`,
+    `saathi-setu-0.1.3-${arch}.nsis.7z`,
+    "builder-debug.yml",
+    "builder-effective-config.yaml",
+    "latest.yml"
+  ];
+
+  for (const name of names) {
+    const target = path.join(outputDir, name);
+    if (!fs.existsSync(target)) continue;
+    assertInside(outputDir, target);
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+}
+
+export function cleanReleaseOutput() {
+  const keep = new Set(["32 bit", "64 bit"]);
+  if (!fs.existsSync(outputDir)) return;
+  for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+    if (keep.has(entry.name)) continue;
+    const target = path.join(outputDir, entry.name);
+    assertInside(outputDir, target);
+    fs.rmSync(target, { recursive: true, force: true });
   }
 }
 
