@@ -1,0 +1,20 @@
+{
+  "seedTrades": {
+    "path": "/api/seed-trades",
+    "method": "GET",
+    "itemsPath": "data.items",
+    "pagination": {
+      "type": "page",
+      "pageParam": "page",
+      "startPage": 1,
+      "pageSizeParam": "pageSize",
+      "pageSize": 100,
+      "totalPagesPath": "data.totalPages"
+    }
+  },
+  "licenses": {
+    "path": "/api/licenses",
+    "method": "GET",
+    "itemsPath": "data"
+  }
+}
