@@ -1,6 +1,6 @@
 {
   "name": "saathi-setu",
-  "version": "2.0.7",
+  "version": "1.0.8",
   "private": true,
   "description": "Desktop integration foundation for fetching Saathi portal data and syncing it with Tally.",
   "type": "module",

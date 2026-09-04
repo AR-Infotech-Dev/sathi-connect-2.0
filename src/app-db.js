@@ -215,6 +215,18 @@ export function upsertSathiOrderQueue(companyName, licenceCode, action, data) {
       && entry.voucher_number === normalized.voucherNumber
     );
     const existing = index >= 0 ? store.sathiOrderQueue[index] : {};
+    const existingOrder = parseJson(existing.order_json, {});
+    const mergedOrder = {
+      ...normalized.order,
+      historicalPurchaseUpdate: normalized.order.historicalPurchaseUpdate || existingOrder.historicalPurchaseUpdate || undefined
+    };
+    if (!mergedOrder.historicalPurchaseUpdate) delete mergedOrder.historicalPurchaseUpdate;
+    const historicalStatus = existingOrder.historicalPurchaseUpdate
+      ? (existing.queue_status || "")
+      : "";
+    const nextQueueStatus = historicalStatus || (Object.keys(normalized.lot).length
+      ? normalized.queueStatus
+      : (existing.queue_status || normalized.queueStatus));
     const record = {
       id: existing.id || nextId(store.sathiOrderQueue),
       company_name: normalized.companyName,
@@ -226,9 +238,9 @@ export function upsertSathiOrderQueue(companyName, licenceCode, action, data) {
       buyer_code: normalized.buyerCode || existing.buyer_code || "",
       buyer_name: normalized.buyerName || existing.buyer_name || "",
       total_bill_price: normalized.totalBillPrice || existing.total_bill_price || "",
-      queue_status: Object.keys(normalized.lot).length ? normalized.queueStatus : (existing.queue_status || normalized.queueStatus),
+      queue_status: nextQueueStatus,
       source_action: normalized.sourceAction,
-      order_json: JSON.stringify(normalized.order),
+      order_json: JSON.stringify(mergedOrder),
       lot_json: Object.keys(normalized.lot).length ? JSON.stringify(normalized.lot) : (existing.lot_json || "{}"),
       created_at: existing.created_at || now,
       updated_at: now

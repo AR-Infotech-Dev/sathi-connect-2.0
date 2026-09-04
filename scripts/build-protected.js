@@ -42,10 +42,10 @@ const nodeObfuscationOptions = {
   transformObjectKeys: false
 };
 
-const browserObfuscationOptions = {
-  ...nodeObfuscationOptions,
-  target: "browser"
-};
+const protectedJavaScriptFiles = new Set([
+  "electron/main.cjs",
+  "electron/server.bundle.cjs"
+]);
 
 cleanBuildDir();
 copyAppFiles();
@@ -130,15 +130,14 @@ function removeBundledSource() {
 }
 
 function obfuscateJavaScriptFiles() {
-  const files = listFiles(buildDir).filter((file) => file.endsWith(".js") || file.endsWith(".cjs"));
+  const files = listFiles(buildDir)
+    .filter((file) => file.endsWith(".js") || file.endsWith(".cjs"))
+    .filter((file) => protectedJavaScriptFiles.has(path.relative(buildDir, file).replace(/\\/g, "/")));
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     const relativePath = path.relative(buildDir, file).replace(/\\/g, "/");
-    const options = relativePath.startsWith("public/")
-      ? browserObfuscationOptions
-      : nodeObfuscationOptions;
     const result = JavaScriptObfuscator.obfuscate(source, {
-      ...options,
+      ...nodeObfuscationOptions,
       sourceMap: false
     });
     fs.writeFileSync(file, `${result.getObfuscatedCode()}\n`);

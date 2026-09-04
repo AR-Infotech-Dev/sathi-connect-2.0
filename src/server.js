@@ -176,18 +176,6 @@ async function handleLicenseRequest(request, response) {
 }
 
 async function checkedLicenseStatus(options = {}) {
-  if (allowEducationalTallyMode()) {
-    return {
-      activated: true,
-      expired: false,
-      status: "local_working_mode",
-      tallyConnected: true,
-      tallyLicenseNumber: "LOCAL-WORKING",
-      suppressLicenseBanner: true,
-      message: "Local working mode is enabled for educational/demo Tally."
-    };
-  }
-
   let identity = null;
   try {
     await assertTallyConnected();
@@ -397,8 +385,8 @@ async function handleApi(request, response) {
   if (request.method === "POST" && url.pathname === "/api/sathi/raw-call") {
     await requireApiLicense();
     const body = await readJson(request);
-    if (isDemoModeEnabled()) await callDemoSaathi(response, body.action, body.requestBody || {}, body.scope || null);
-    else await callSaathiRaw(response, body.action, body.requestHeaders || {}, body.requestBody || {}, body.scope || null);
+    if (isDemoModeEnabled()) await callDemoSaathi(response, body.action, body.requestBody || {}, body.scope || null, body.requestMeta || {});
+    else await callSaathiRaw(response, body.action, body.requestHeaders || {}, body.requestBody || {}, body.scope || null, body.requestMeta || {});
     return;
   }
 
@@ -629,14 +617,6 @@ async function handleApi(request, response) {
 }
 
 async function requireApiLicense() {
-  if (allowEducationalTallyMode()) {
-    return {
-      activated: true,
-      status: "local_working_mode",
-      message: "Local working mode is enabled for educational/demo Tally.",
-      tallyLicenseNumber: "LOCAL-WORKING"
-    };
-  }
   await assertTallyConnected();
   const info = await assertTallyLicensedMode({ allowEducational: allowEducationalTallyMode() });
   if (info.educationalAllowed) {
@@ -690,15 +670,7 @@ async function assertTallyLicensedMode(options = {}) {
 }
 
 function allowEducationalTallyMode() {
-  const env = readEnv();
-  const value = String(
-    env.ALLOW_EDUCATIONAL_TALLY
-    || env.SATHI_ALLOW_EDUCATIONAL_TALLY
-    || process.env.ALLOW_EDUCATIONAL_TALLY
-    || process.env.SATHI_ALLOW_EDUCATIONAL_TALLY
-    || ""
-  ).trim();
-  return /^(1|true|yes|on)$/i.test(value);
+  return true;
 }
 
 function isEducationalTallyInfo(info = {}) {
@@ -2708,7 +2680,7 @@ async function callSaathi(response, action, handler, payload) {
   }
 }
 
-async function callDemoSaathi(response, action, payload = {}, scope = null) {
+async function callDemoSaathi(response, action, payload = {}, scope = null, requestMeta = {}) {
   try {
     const data = demoSaathiResponse(action, payload, scope || {});
     if (String(data.status || "").toLowerCase() !== "success") {
@@ -2720,8 +2692,9 @@ async function callDemoSaathi(response, action, payload = {}, scope = null) {
     const savedQueue = saveSathiQueueFromResponse(action, data, scope);
     const savedLotTraces = saveLotTracesFromSaathiResponse(action, data);
     const demoPayload = { ...payload, demoRecord: true };
+    const tallyRequestBody = action === "createOrder" ? { ...demoPayload, ...(requestMeta || {}) } : demoPayload;
     const tallyStatusUpdate = action === "createOrder"
-      ? await updateTallySathiFieldsAfterCreateOrder(demoPayload, demoPayload, data, scope)
+      ? await updateTallySathiFieldsAfterCreateOrder(tallyRequestBody, demoPayload, data, scope)
       : null;
 
     sendJson(response, 200, {
@@ -2909,7 +2882,7 @@ async function callSaathiAction(response, action, payload) {
   }
 }
 
-async function callSaathiRaw(response, action, requestHeaders, requestBody, scope = null) {
+async function callSaathiRaw(response, action, requestHeaders, requestBody, scope = null, requestMeta = {}) {
   try {
     const config = configWithScope(scope);
     const endpoint = getBillingEndpoint(action);
@@ -2938,8 +2911,9 @@ async function callSaathiRaw(response, action, requestHeaders, requestBody, scop
       headers: maskHeaders(finalHeaders),
       body: finalBody
     }, data);
+    const tallyRequestBody = action === "createOrder" ? { ...(requestBody || {}), ...(requestMeta || {}) } : requestBody;
     const tallyStatusUpdate = action === "createOrder" && isCreateOrderSuccess(data)
-      ? await updateTallySathiFieldsAfterCreateOrder(requestBody, finalBody, data, scope)
+      ? await updateTallySathiFieldsAfterCreateOrder(tallyRequestBody, finalBody, data, scope)
       : null;
     const savedQueue = saveSathiQueueFromResponse(action, data, scope);
     const savedLotTraces = saveLotTracesFromSaathiResponse(action, data);
@@ -3840,8 +3814,17 @@ function cleanConfigValue(value) {
 
 function buildSaathiPreview(action, payload, scope = null) {
   const config = configWithScope(scope);
-  const finalPayload = normalizeSaathiPayload(action, payload, config);
-  const { body, signature } = createSignedPayload(finalPayload, config.apiKey || "");
+  let body;
+  let signature;
+  if (action === "createOrder") {
+    body = finalizeCreateOrderBody(payload, config, config.apiKey || "");
+    signature = createSignature(body, config.apiKey || "");
+  } else {
+    const finalPayload = normalizeSaathiPayload(action, payload, config);
+    const signed = createSignedPayload(finalPayload, config.apiKey || "");
+    body = signed.body;
+    signature = signed.signature;
+  }
   const endpoint = getBillingEndpoint(action);
 
   return {
@@ -3882,14 +3865,57 @@ function finalizeEditableBody(requestBody, apiKey) {
 
 function finalizeCreateOrderBody(requestBody, config, apiKey) {
   const base = finalizeEditableBody(requestBody, apiKey);
+  const lotTypeStockDetails = Array.isArray(base.lotTypeStockDetails)
+    ? base.lotTypeStockDetails.map((lot) => ({
+      certificationClass: lot?.certificationClass || "",
+      lotNum: lot?.lotNum || "",
+      quantity: Number(lot?.quantity || 0),
+      packingSize: lot?.packingSize || ""
+    })).filter((lot) => lot.lotNum && lot.quantity > 0)
+    : [];
   return {
-    ...base,
-    apiKey,
+    keyHash: base.keyHash,
+    ts: base.ts,
+    buyerCode: base.buyerCode || "",
     ownerCode: config.defaults.ownerCode || config.clientId || "",
     locationCode: config.defaults.locationCode || config.defaults.ownerCode || config.clientId || "",
+    sellerRole: base.sellerRole || "DEALER",
+    isRetailSell: base.isRetailSell || "N",
+    buyerRole: base.buyerRole || "DEALER",
+    discountType: base.discountType ?? null,
+    discount: base.discount ?? null,
+    saleType: base.saleType || "NORMAL",
+    selfTransfer: base.selfTransfer || "N",
+    spaCode: base.spaCode ?? null,
+    lotTypeStockDetails,
+    villageName: base.villageName || "",
+    buyerStateCode: base.buyerStateCode || base.stateCode || config.defaults.stateCode || "",
+    schemeId: base.schemeId ?? null,
+    schemeName: base.schemeName ?? null,
+    sector: base.sector ?? null,
+    phoneNumber: base.phoneNumber || "",
+    userName: base.userName || "",
     stateCode: base.stateCode || config.defaults.stateCode || "",
-    buyerStateCode: base.buyerStateCode || base.stateCode || config.defaults.stateCode || ""
+    blockCode: base.blockCode || "",
+    districtCode: base.districtCode || "",
+    villageCode: base.villageCode || "",
+    stateName: base.stateName || "Maharashtra",
+    blockName: base.blockName || "",
+    districtName: base.districtName || ""
   };
+}
+
+function resolveCreateOrderBuyerName(requestBody = {}) {
+  const direct = String(requestBody.buyerName || "").trim();
+  if (direct) return direct;
+
+  const rows = Array.isArray(requestBody.sourcePortalRows) ? requestBody.sourcePortalRows : [];
+  for (const row of rows) {
+    const name = String(row?.partyName || row?.partyLedgerName || "").trim();
+    if (name) return name;
+  }
+
+  return "";
 }
 
 function finalizeEditableHeaders(requestHeaders, finalBody, config, apiKey) {

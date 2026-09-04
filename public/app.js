@@ -42,7 +42,9 @@ const state = {
     filters: {
       search: "",
       status: "all",
-      qty: "all"
+      qty: "all",
+      fromDate: "",
+      toDate: ""
     }
   },
   activePortalSaleEntry: null,
@@ -371,52 +373,41 @@ const companyUdfDefinitions = [
 ];
 
 const sampleCreateOrder = {
-  apiKey: "",
   keyHash: "",
   ts: 0,
-  isRetailSell: "N",
-  buyerCode: "LCSD0920222968WSH",
+  buyerCode: "9657485485",
   ownerCode: "",
-  buyerRole: "DEALER",
+  locationCode: "",
   sellerRole: "DEALER",
+  isRetailSell: "Y",
+  buyerRole: "FARMER",
   discountType: null,
-  discount: 0,
+  discount: null,
+  saleType: "NORMAL",
+  selfTransfer: "N",
+  spaCode: null,
+  lotTypeStockDetails: [
+    {
+      certificationClass: "CERTIFIED I",
+      lotNum: "TL-SHS-25-301",
+      quantity: 1,
+      packingSize: "0.5"
+    }
+  ],
+  villageName: "",
+  buyerStateCode: "27",
+  schemeId: null,
+  schemeName: null,
+  sector: null,
+  phoneNumber: "",
+  userName: "",
   stateCode: "27",
   blockCode: "",
   districtCode: "",
+  villageCode: "",
   stateName: "Maharashtra",
   blockName: "",
-  districtName: "",
-  villageName: "",
-  phoneNumber: "",
-  panNumber: "A",
-  gstNumber: "A",
-  villageCode: "",
-  locationCode: "",
-  pin: "",
-  plotNo: "",
-  isStateNotOnboarded: true,
-  selfTransfer: "N",
-  lotTypeStockDetails: [
-    {
-      certificationClass: "TLSEED",
-      lotNum: "TL-LOT-2026-12",
-      packingSize: "4",
-      quantity: 1
-    }
-  ],
-  buyerStateCode: "27",
-  originalOwner: "",
-  isTransfer: false,
-  schemeId: "",
-  schemeName: "",
-  sector: "",
-  tagNums: [],
-  vehicleNumber: "",
-  gender: "",
-  subsidy: 0,
-  category: "",
-  isSubsidy: false
+  districtName: ""
 };
 
 const samplePullLotResponse = {
@@ -987,12 +978,12 @@ function bindActions() {
   document.getElementById("portalPushForm")?.elements?.buyerRole?.addEventListener("change", (event) => {
     const form = document.getElementById("portalPushForm");
     if (form?.elements?.isRetailSell && event.target.value === "FARMER") {
-      form.elements.isRetailSell.value = "Yes";
+      form.elements.isRetailSell.value = "Y";
     }
   });
   document.getElementById("portalPushForm")?.elements?.isRetailSell?.addEventListener("change", (event) => {
     const form = document.getElementById("portalPushForm");
-    if (form?.elements?.buyerRole && event.target.value === "Yes") {
+    if (form?.elements?.buyerRole && normalizeRetailSellFlag(event.target.value) === "Y") {
       form.elements.buyerRole.value = "FARMER";
     }
   });
@@ -1051,6 +1042,14 @@ function bindActions() {
   });
   document.getElementById("salesRecoveryQtyFilter")?.addEventListener("change", (event) => {
     state.salesRecovery.filters.qty = event.target.value || "all";
+    renderSalesRecovery();
+  });
+  document.getElementById("salesRecoveryFromDate")?.addEventListener("change", (event) => {
+    state.salesRecovery.filters.fromDate = event.target.value || "";
+    renderSalesRecovery();
+  });
+  document.getElementById("salesRecoveryToDate")?.addEventListener("change", (event) => {
+    state.salesRecovery.filters.toDate = event.target.value || "";
     renderSalesRecovery();
   });
   document.getElementById("salesRecoveryFilterClearBtn")?.addEventListener("click", clearSalesRecoveryFilters);
@@ -1316,23 +1315,76 @@ function portalCreateOrderPayload() {
     packingSize: value("packingSize"),
     quantity: numberValue("quantity", 0)
   };
-  if (form.dataset.totalQty) lotDetail.totalQty = numberFrom(form.dataset.totalQty, 0);
   const activeSaleRows = state.activePortalSaleEntry ? selectedPortalItems(state.activePortalSaleEntry) : [];
   const scopedLotDetails = activeSaleRows.map((item) => {
     const trace = portalTraceForItem(state.activePortalSaleEntry, item) || {};
-    const detail = {
+    return {
       certificationClass: value("certificationClass"),
       lotNum: item.lotNum || "",
       packingSize: item.packingSize || trace.packingSize || value("packingSize"),
       quantity: Math.abs(Number(item.quantity || 0))
     };
-    const totalQty = Number(item.quantityQtl || 0);
-    if (Number.isFinite(totalQty) && totalQty > 0) detail.totalQty = totalQty;
-    return detail;
   }).filter((item) => item.lotNum && item.quantity > 0);
+  const buyerRole = value("buyerRole") || "DEALER";
+  const isRetailSell = normalizeRetailSellFlag(value("isRetailSell") || base.isRetailSell || (buyerRole === "FARMER" ? "Y" : "N"));
+  const buyerCode = buyerRole === "FARMER"
+    ? String(state.activePortalSaleEntry?.customerMobileNo || state.activePortalSaleEntry?.sathiCustMobNo || form.dataset.customerMobileNo || "").trim()
+    : value("buyerCode");
+  const customerMobileNo = String(state.activePortalSaleEntry?.customerMobileNo || state.activePortalSaleEntry?.sathiCustMobNo || form.dataset.customerMobileNo || "").trim();
+  const buyerAddressLines = Array.isArray(state.activePortalSaleEntry?.buyerAddressLines)
+    ? Array.from(new Set(state.activePortalSaleEntry.buyerAddressLines.map((line) => String(line || "").trim()).filter(Boolean)))
+    : [];
+  const buyerAddress = String(
+    buyerAddressLines.length
+      ? buyerAddressLines.join(", ")
+      : (state.activePortalSaleEntry?.buyerAddress || form.dataset.buyerAddress || "")
+  ).trim();
+  const userName = String(
+    state.activePortalSaleEntry?.partyName ||
+    state.activePortalSaleEntry?.partyLedgerName ||
+    form.dataset.buyerName ||
+    value("userName") ||
+    state.config?.saathi?.userName ||
+    base.userName ||
+    ""
+  ).trim();
 
   return {
-    ...base,
+    keyHash: base.keyHash || "",
+    ts: Number(base.ts || 0),
+    buyerCode,
+    ownerCode: value("ownerCode") || base.ownerCode,
+    locationCode: value("locationCode") || base.locationCode,
+    sellerRole: value("sellerRole") || "DEALER",
+    isRetailSell,
+    buyerRole,
+    discountType: null,
+    discount: null,
+    saleType: "NORMAL",
+    selfTransfer: "N",
+    spaCode: null,
+    lotTypeStockDetails: scopedLotDetails.length ? scopedLotDetails : [lotDetail],
+    villageName: buyerAddress || value("villageName"),
+    buyerStateCode: value("stateCode") || base.buyerStateCode || base.stateCode,
+    schemeId: null,
+    schemeName: null,
+    sector: null,
+    phoneNumber: value("phoneNumber") || customerMobileNo,
+    userName,
+    stateCode: value("stateCode") || base.stateCode,
+    blockCode: value("blockCode"),
+    districtCode: value("districtCode"),
+    villageCode: value("villageCode"),
+    stateName: value("stateName") || "Maharashtra",
+    blockName: value("blockName"),
+    districtName: value("districtName")
+  };
+}
+
+function portalCreateOrderMeta() {
+  const form = document.getElementById("portalPushForm");
+  if (!form || !state.activePortalSaleEntry) return {};
+  return {
     sourceVoucherNumber: form.dataset.sourceVoucherNumber || "",
     sourceVoucherKey: form.dataset.sourceVoucherKey || "",
     sourceRemoteId: form.dataset.sourceRemoteId || "",
@@ -1340,30 +1392,7 @@ function portalCreateOrderPayload() {
     sourceReference: form.dataset.sourceReference || "",
     sourceVoucherDate: form.dataset.sourceVoucherDate || "",
     sourceVoucherTypeName: form.dataset.sourceVoucherTypeName || "",
-    sourcePortalRows: state.activePortalSaleEntry ? portalSelectedRowPayload(state.activePortalSaleEntry) : [],
-    isRetailSell: value("isRetailSell") || base.isRetailSell || "N",
-    buyerCode: value("buyerCode"),
-    ownerCode: value("ownerCode") || base.ownerCode,
-    buyerRole: value("buyerRole") || "DEALER",
-    sellerRole: value("sellerRole") || "DEALER",
-    stateCode: value("stateCode") || base.stateCode,
-    blockCode: value("blockCode"),
-    districtCode: value("districtCode"),
-    stateName: value("stateName") || "Maharashtra",
-    blockName: value("blockName"),
-    districtName: value("districtName"),
-    villageName: value("villageName"),
-    phoneNumber: value("phoneNumber"),
-    panNumber: value("panNumber") || "A",
-    gstNumber: value("gstNumber") || "A",
-    villageCode: value("villageCode"),
-    locationCode: value("locationCode") || base.locationCode,
-    pin: value("pin"),
-    plotNo: value("plotNo"),
-    originalOwner: value("originalOwner"),
-    subsidy: numberValue("subsidy", 0),
-    lotTypeStockDetails: scopedLotDetails.length ? scopedLotDetails : [lotDetail],
-    buyerStateCode: value("stateCode") || base.buyerStateCode || base.stateCode
+    sourcePortalRows: portalSelectedRowPayload(state.activePortalSaleEntry)
   };
 }
 
@@ -1582,6 +1611,7 @@ async function sendWorkbenchRequest() {
         action,
         requestHeaders: parseJsonEditor("requestHeaders"),
         requestBody: parseJsonEditor("requestBody"),
+        requestMeta: action === "createOrder" ? portalCreateOrderMeta() : {},
         scope: activeScopePayload()
       }
     });
@@ -2177,7 +2207,7 @@ function scopeLicenceType(scope = {}) {
   if (scope?.isCottonLicence) return "cotton";
   const fieldsType = voucherTypeLicenceType(scope?.fields || scope?.purchase?.fields || {});
   if (fieldsType) return fieldsType;
-  return (scope?.sales || []).some((entry) => voucherTypeCottonFlag(entry?.fields))
+  return arrayOf(scope?.sales).some((entry) => voucherTypeCottonFlag(entry?.fields))
     ? "cotton"
     : "seed";
 }
@@ -2649,11 +2679,11 @@ function renderOrders() {
     const tallyStatus = state.tallyStatuses[order.voucherNumber] || tallyStatusFromQueue(order) || "Pending for Tally";
     const mappingStatus = bill ? mappingStatusForBill(bill) : { label: t("lotMissing", "Lot missing"), className: "status-pill status-warn" };
     const grnStatus = bill ? grnStatusForBill(bill) : null;
-    const pushDisabled = bill && ["Found in Tally", "Verified in Tally", "Partial in Tally", "Pushed to Tally", "Existing purchase updated", "Existing purchase updated but no sales found/updated"].includes(tallyStatus);
+    const pushDisabled = bill && ["Found in Tally", "Verified in Tally", "Pushed to Tally", "Existing purchase updated"].includes(tallyStatus);
     const mainAction = bill
       ? {
         action: "push",
-        label: pushDisabled ? t("synced", "Synced") : t("push", "Push"),
+        label: pushDisabled ? t("synced", "Synced") : tallyStatus === "Partial in Tally" ? "Push Pending" : t("push", "Push"),
         className: pushDisabled ? "synced-mini" : "push-mini",
         disabled: pushDisabled
       }
@@ -3182,10 +3212,9 @@ function isBillPushedToTally(bill = {}) {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   const normalizedResultStatus = String(result.status || "").trim().toLowerCase();
   const message = String(result.message || "").trim().toLowerCase();
-  if (["verified in tally", "partial in tally"].includes(normalizedStatus)) return true;
-  if (["verified", "partial", "pushed-and-verified", "pushed-partial", "skipped-existing", "partial-existing"].includes(normalizedResultStatus)) return true;
+  if (["verified in tally"].includes(normalizedStatus)) return true;
+  if (["verified", "pushed-and-verified", "skipped-existing"].includes(normalizedResultStatus)) return true;
   if (result.verification?.exists || result.alreadyExists) return true;
-  if (result.verification?.partial || result.partialExists) return true;
   if (message.includes("already exists in tally") || message.includes("imported and verified in tally")) return true;
   return false;
 }
@@ -3615,7 +3644,7 @@ function pendingOrdersForTallyPush() {
   return state.orders.filter((order) => {
     if (!belongsToActiveLicence(order)) return false;
     const status = state.tallyStatuses[order.voucherNumber] || "Pending for Tally";
-    return !["Found in Tally", "Verified in Tally", "Partial in Tally", "Pushed to Tally", "Existing purchase updated", "Existing purchase updated but no sales found/updated"].includes(status);
+    return !["Found in Tally", "Verified in Tally", "Pushed to Tally", "Existing purchase updated"].includes(status);
   });
 }
 
@@ -3651,7 +3680,7 @@ async function openBulkHistoricalRecovery() {
     const bill = findBillForOrder(order);
     if (!bill) continue;
     const partyLedger = resolvePartyLedgerForBill(bill).ledgerName;
-    const mappedItems = uniqueMappingLots(bill.lotData || []).map((lot) => resolveTallyItemForLot(lot)).filter(Boolean);
+    const mappedItems = historicalPurchaseSearchItemNames(bill);
     if (!partyLedger || !mappedItems.length) continue;
     try {
       const result = await api("/api/tally/batch-correction/candidates", {
@@ -3669,7 +3698,7 @@ async function openBulkHistoricalRecovery() {
       });
       for (const row of result.rows || []) {
         const lot = recoveryLotForItem(bill, row.stockItemName);
-        if (lot) candidates.push({ ...row, lot, order, bill });
+        candidates.push({ ...row, lot, order, bill });
       }
     } catch {
       // Continue scanning other orders; support-ready errors are recorded by the API layer.
@@ -3703,6 +3732,7 @@ async function handleRecoveryAssistantClick(event) {
     return closeRecoveryAssistant();
   }
   if (action === "update-purchase") return updateHistoricalPurchaseCandidate(Number(event.target.closest("[data-candidate-index]")?.dataset.candidateIndex));
+  if (action === "update-all-purchase") return updateAllSafeHistoricalPurchaseCandidates();
   if (action === "update-bulk-purchase") return updateBulkHistoricalPurchaseCandidate(Number(event.target.closest("[data-bulk-candidate-index]")?.dataset.bulkCandidateIndex));
   if (action === "bulk-create-new-purchases") return createRemainingBulkPurchases();
   if (action === "check-sales") return loadHistoricalSalesCandidates({ auto: false });
@@ -3770,6 +3800,7 @@ function renderRecoveryAssistant() {
   }
 
   if (assistant.stage === "purchase-list") {
+    const safeCount = assistant.purchaseCandidates.filter((row) => !row.updated && historicalRecoForRow(row, "purchase").level === "strong").length;
     title.textContent = "Earlier purchase entries";
     text.textContent = assistant.purchaseCandidates.length
       ? "Detailed recommendation is shown below. Item matching ignores spaces like Tally item masters."
@@ -3777,6 +3808,7 @@ function renderRecoveryAssistant() {
     body.innerHTML = `${historicalRecoSummaryHtml(assistant.purchaseCandidates, "purchase")}${recoveryCandidateRows(assistant.purchaseCandidates, "purchase")}`;
     actions.innerHTML = `
       <button class="secondary-button" data-recovery-action="${assistant.updatedPurchases.length ? "skip-sales" : "create-new-purchase"}" type="button">${assistant.updatedPurchases.length ? "Finish" : "No correct row, create new bill"}</button>
+      <button class="primary-button" data-recovery-action="update-all-purchase" type="button" ${safeCount ? "" : "disabled"}>Update All Safe Matches${safeCount ? ` (${safeCount})` : ""}</button>
       <button class="primary-button" data-recovery-action="check-sales" type="button" ${assistant.updatedPurchases.length ? "" : "disabled"}>Check sales using old batch</button>`;
     return;
   }
@@ -3843,12 +3875,14 @@ function historicalRecoForRow(row = {}, mode = "purchase") {
     if (qtyKnown) reasons.push(qtyMatched ? "Quantity matched" : `Quantity mismatch (${row.quantity || 0}/${row.expectedQuantity || 0})`);
     if (!partyMatched) warnings.push("Party is different from SATHI order.");
     if (qtyKnown && !qtyMatched) warnings.push("Quantity does not fully match inward order.");
-    if (row.purchaseSathiFieldsPresent) warnings.push("Purchase SATHI UDFs already exist.");
-    const level = partyMatched && qtyMatched ? "strong" : (partyMatched || qtyMatched) ? "possible" : "weak";
+    if (row.purchaseSathiFieldsPresent) warnings.push("Existing SATHI UDFs will be overwritten on this row.");
+    if (row.lot?._fallbackMatched) warnings.push("Exact item mapping was not found; single SATHI order lot will be used.");
+    if (!row.lot) warnings.push("SATHI order lot mapping was not found.");
+    const level = partyMatched ? "strong" : (qtyMatched ? "possible" : "weak");
     return {
       level,
       label: level === "strong" ? "My Strong Suggestion" : level === "possible" ? "Possible Match" : "Weak Match",
-      title: level === "strong" ? "This entry is an exact historical match" : level === "possible" ? "This entry needs manual review" : "Low-confidence historical row",
+      title: level === "strong" ? "Same party + item found in date period" : level === "possible" ? "This entry needs manual review" : "Low-confidence historical row",
       reasons,
       warnings
     };
@@ -3892,20 +3926,22 @@ function recoveryCandidateRows(rows = [], mode) {
   }
   return `<div class="recovery-list">${rows.map((row, index) => {
     const updated = Boolean(row.updated);
+    const missingPurchaseLot = mode === "purchase" && !row.lot;
+    const canUpdate = !updated && !missingPurchaseLot;
     const qtyLabel = row.expectedQuantity
       ? (row.quantityMatched ? "Qty matched" : `Qty mismatch: ${row.quantity || 0}/${row.expectedQuantity}`)
       : "";
-    const exactMatch = mode === "purchase" && row.partyMatch && row.quantityMatched;
+    const exactMatch = mode === "purchase" && historicalRecoForRow(row, mode).level === "strong";
     return `
       <article class="recovery-row">
         ${historicalRecoHtml(row, mode)}
-        ${exactMatch ? '<div class="recovery-strong-suggestion"><strong>My Strong Suggestion</strong><span>This entry is an exact match</span><small>Party Matched · Item Matched · Quantity Matched</small></div>' : ""}
+        ${exactMatch ? '<div class="recovery-strong-suggestion"><strong>My Strong Suggestion</strong><span>Same party + item found in date period</span><small>Party Matched · Item Matched · Date Below</small></div>' : ""}
         ${mode === "sales" ? `<label class="recovery-check"><input type="checkbox" data-recovery-action="toggle-sales-candidate" data-candidate-index="${index}" ${row.selected === false || updated ? "" : "checked"} ${updated ? "disabled" : ""}> Select</label>` : ""}
         <div><strong>${escapeHtml(row.voucherNumber || "-")}</strong><small>${escapeHtml(formatTallyDate(row.date) || row.date || "-")}</small></div>
         <div><strong>${escapeHtml(row.partyLedgerName || "-")}</strong><small>${escapeHtml(row.voucherTypeName || "-")}</small></div>
-        <div><strong>${escapeHtml(row.stockItemName || "-")}</strong><small>Old batch: ${escapeHtml(row.batchName || "-")}</small></div>
+        <div><strong>${escapeHtml(row.stockItemName || "-")}</strong><small>Old batch: ${escapeHtml(row.batchName || "-")}</small>${row.lot?._fallbackMatched ? '<span class="status-pill status-warn">Single order lot used</span>' : ""}${missingPurchaseLot ? '<span class="status-pill status-warn">Lot mapping needed</span>' : ""}</div>
         <div><strong>${escapeHtml(row.quantityText || "-")}</strong><small>Rate ${escapeHtml(row.rate || "-")} | Amount ${escapeHtml(row.amount || "-")}</small>${qtyLabel ? `<span class="${row.quantityMatched ? "status-pill status-ok" : "status-pill status-warn"}">${escapeHtml(qtyLabel)}</span>` : ""}</div>
-        <button class="${updated ? "secondary-button" : "primary-button"}" data-recovery-action="update-${mode}" data-candidate-index="${index}" type="button" ${updated ? "disabled" : ""}>${updated ? "Updated" : "Update Batch / Lot"}</button>
+        <button class="${canUpdate ? "primary-button" : "secondary-button"}" data-recovery-action="update-${mode}" data-candidate-index="${index}" type="button" ${canUpdate ? "" : "disabled"}>${updated ? "Updated" : missingPurchaseLot ? "Map item first" : "Update Batch / Lot"}</button>
       </article>`;
   }).join("")}</div>`;
 }
@@ -3914,19 +3950,21 @@ function bulkRecoveryCandidateRows(rows = []) {
   if (!rows.length) return `<div class="recovery-empty">No same-party same-item earlier purchase entry was found for the pending orders.</div>`;
   return `<div class="recovery-list">${rows.map((row, index) => {
     const updated = Boolean(row.updated);
+    const missingLot = !row.lot;
+    const canUpdate = !updated && !missingLot;
     const qtyLabel = row.expectedQuantity
       ? (row.quantityMatched ? "Best match" : `Qty mismatch: ${row.quantity || 0}/${row.expectedQuantity}`)
       : "";
-    const exactMatch = row.partyMatch && row.quantityMatched;
+    const exactMatch = historicalRecoForRow(row, "purchase").level === "strong";
     return `
       <article class="recovery-row">
         ${historicalRecoHtml(row, "purchase")}
-        ${exactMatch ? '<div class="recovery-strong-suggestion"><strong>My Strong Suggestion</strong><span>This entry is an exact match</span><small>Party Matched · Item Matched · Quantity Matched</small></div>' : ""}
+        ${exactMatch ? '<div class="recovery-strong-suggestion"><strong>My Strong Suggestion</strong><span>Same party + item found in date period</span><small>Party Matched · Item Matched · Date Below</small></div>' : ""}
         <div><strong>${escapeHtml(row.order?.voucherNumber || "-")}</strong><small>SATHI order</small></div>
         <div><strong>${escapeHtml(row.voucherNumber || "-")}</strong><small>${escapeHtml(formatTallyDate(row.date) || row.date || "-")} | ${escapeHtml(row.voucherTypeName || "-")}</small></div>
-        <div><strong>${escapeHtml(row.partyLedgerName || "-")}</strong><small>${escapeHtml(row.stockItemName || "-")}</small></div>
+        <div><strong>${escapeHtml(row.partyLedgerName || "-")}</strong><small>${escapeHtml(row.stockItemName || "-")}</small>${row.lot?._fallbackMatched ? '<span class="status-pill status-warn">Single order lot used</span>' : ""}${missingLot ? '<span class="status-pill status-warn">Lot mapping needed</span>' : ""}</div>
         <div><strong>${escapeHtml(row.quantityText || "-")}</strong><small>Old batch: ${escapeHtml(row.batchName || "-")}</small>${qtyLabel ? `<span class="${row.quantityMatched ? "status-pill status-ok" : "status-pill status-warn"}">${escapeHtml(qtyLabel)}</span>` : ""}</div>
-        <button class="${updated ? "secondary-button" : "primary-button"}" data-recovery-action="update-bulk-purchase" data-bulk-candidate-index="${index}" type="button" ${updated ? "disabled" : ""}>${updated ? "Updated" : "Update Batch / Lot"}</button>
+        <button class="${canUpdate ? "primary-button" : "secondary-button"}" data-recovery-action="update-bulk-purchase" data-bulk-candidate-index="${index}" type="button" ${canUpdate ? "" : "disabled"}>${updated ? "Updated" : missingLot ? "Map item first" : "Update Batch / Lot"}</button>
       </article>`;
   }).join("")}</div>`;
 }
@@ -3938,11 +3976,20 @@ function expectedQuantitiesForBill(bill = {}) {
   })).filter((row) => row.stockItemName && Number.isFinite(row.quantity) && row.quantity > 0);
 }
 
+function historicalPurchaseSearchItemNames(bill = {}) {
+  return [...new Set(uniqueMappingLots(bill.lotData || []).flatMap((lot) => [
+    resolveTallyItemForLot(lot),
+    portalItemName(lot),
+    lot.varietyName,
+    lot.cropName
+  ]).map((name) => String(name || "").trim()).filter(Boolean))];
+}
+
 async function loadHistoricalPurchaseCandidates(options = {}) {
   const assistant = state.recoveryAssistant;
   const bill = assistant.bill || {};
   const scope = activeLicenceScope() || {};
-  const mappedItems = uniqueMappingLots(bill.lotData || []).map((lot) => resolveTallyItemForLot(lot)).filter(Boolean);
+  const mappedItems = historicalPurchaseSearchItemNames(bill);
   assistant.stage = "purchase-loading";
   renderRecoveryAssistant();
   try {
@@ -3966,7 +4013,7 @@ async function loadHistoricalPurchaseCandidates(options = {}) {
     assistant.purchaseCandidates = (result.rows || []).map((row) => ({
       ...row,
       lot: recoveryLotForItem(bill, row.stockItemName)
-    })).filter((row) => row.lot);
+    }));
     assistant.stage = "purchase-list";
     assistant.autoMode = Boolean(options.auto);
   } catch (error) {
@@ -3980,7 +4027,8 @@ async function loadHistoricalPurchaseCandidates(options = {}) {
 function recoveryLotForItem(bill = {}, stockItemName = "") {
   const wanted = normalizeItemText(stockItemName);
   if (!wanted) return null;
-  return (bill.lotData || []).find((lot) => {
+  const lots = uniqueMappingLots(bill.lotData || []);
+  const exact = lots.find((lot) => {
     const candidates = [
       resolveTallyItemForLot(lot),
       portalItemName(lot),
@@ -3988,7 +4036,10 @@ function recoveryLotForItem(bill = {}, stockItemName = "") {
       lot.cropName
     ].filter(Boolean).map(normalizeItemText);
     return candidates.includes(wanted);
-  }) || null;
+  });
+  if (exact) return exact;
+  if (lots.length === 1) return { ...lots[0], _fallbackMatched: true };
+  return null;
 }
 
 function historicalSalesStockItemNames(purchase = {}) {
@@ -4043,7 +4094,7 @@ function applyHistoricalPurchaseMetadataToOrder(voucherNumber, metadata = {}) {
   });
 }
 
-async function updateHistoricalPurchaseCandidate(index) {
+async function updateHistoricalPurchaseCandidate(index, options = {}) {
   const assistant = state.recoveryAssistant;
   const candidate = assistant.purchaseCandidates[index];
   if (!candidate || candidate.updated || !candidate.lot) return;
@@ -4055,6 +4106,7 @@ async function updateHistoricalPurchaseCandidate(index) {
       itemMappings: buildBillItemMappings(assistant.bill || {}),
       change: {
         mode: "purchase",
+        allowOverwriteSathiBatch: true,
         masterId: candidate.masterId,
         expectedAlterId: candidate.alterId,
         voucherNumber: candidate.voucherNumber,
@@ -4089,11 +4141,38 @@ async function updateHistoricalPurchaseCandidate(index) {
   }
   showToast(result.message || (candidate.updated ? "Purchase batch updated." : "Purchase batch update not confirmed."));
   if (candidate.updated) {
-    renderRecoveryAssistant();
-    await loadHistoricalSalesCandidates({ auto: true });
+    if (!options.silent) {
+      renderRecoveryAssistant();
+      await loadHistoricalSalesCandidates({ auto: true });
+    }
     return;
   }
+  if (!options.silent) renderRecoveryAssistant();
+}
+
+async function updateAllSafeHistoricalPurchaseCandidates() {
+  const assistant = state.recoveryAssistant || {};
+  const safeIndexes = (assistant.purchaseCandidates || [])
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => !row.updated && row.lot && historicalRecoForRow(row, "purchase").level === "strong")
+    .map(({ index }) => index);
+  if (!safeIndexes.length) {
+    showToast("No safe historical purchase matches found.");
+    return;
+  }
+  let updated = 0;
+  for (const index of safeIndexes) {
+    try {
+      const before = Boolean(assistant.purchaseCandidates[index]?.updated);
+      await updateHistoricalPurchaseCandidate(index, { silent: true });
+      if (!before && assistant.purchaseCandidates[index]?.updated) updated += 1;
+    } catch (error) {
+      showApiErrorToast(error, "Historical purchase update failed.");
+    }
+  }
   renderRecoveryAssistant();
+  showToast(`${updated} safe purchase match(es) updated.`);
+  if (updated) await loadHistoricalSalesCandidates({ auto: true });
 }
 
 async function updateBulkHistoricalPurchaseCandidate(index) {
@@ -4108,6 +4187,7 @@ async function updateBulkHistoricalPurchaseCandidate(index) {
       itemMappings: buildBillItemMappings(candidate.bill || {}),
       change: {
         mode: "purchase",
+        allowOverwriteSathiBatch: true,
         masterId: candidate.masterId,
         expectedAlterId: candidate.alterId,
         voucherNumber: candidate.voucherNumber,
@@ -4151,7 +4231,7 @@ async function createRemainingBulkPurchases() {
   for (const order of assistant.bulkOrders || pendingOrdersForTallyPush()) {
     if (updatedOrders.has(order.voucherNumber)) continue;
     const status = state.tallyStatuses[order.voucherNumber] || "Pending for Tally";
-    if (["Found in Tally", "Verified in Tally", "Partial in Tally", "Pushed to Tally", "Existing purchase updated", "Existing purchase updated but no sales found/updated"].includes(status)) continue;
+    if (["Found in Tally", "Verified in Tally", "Pushed to Tally", "Existing purchase updated"].includes(status)) continue;
     await pushOrderToTally(order, { skipHistoricalCheck: true });
   }
 }
@@ -4388,9 +4468,32 @@ function salesRecoveryOrderMatchesFilters(order = {}) {
   const progress = salesRecoveryQuantityProgress(meta, candidates, persisted);
   const filters = state.salesRecovery.filters || {};
   if (!matchesSearchText(salesRecoverySearchText(order, meta, candidates, persisted), filters.search)) return false;
+  if (!salesRecoveryMatchesPeriod(order, meta, filters.fromDate, filters.toDate)) return false;
   if (!salesRecoveryMatchesStatusFilter(meta, candidates, persisted, filters.status)) return false;
   if (!salesRecoveryMatchesQtyFilter(progress, filters.qty)) return false;
   return true;
+}
+
+function salesRecoveryMatchesPeriod(order = {}, meta = {}, fromDate = "", toDate = "") {
+  if (!fromDate && !toDate) return true;
+  const dateKey = comparableDateKey(meta.purchaseDate || order.voucherDate || order.billDate || meta.updatedAt || "");
+  if (!dateKey) return true;
+  const fromKey = comparableDateKey(fromDate);
+  const toKey = comparableDateKey(toDate);
+  if (fromKey && dateKey < fromKey) return false;
+  if (toKey && dateKey > toKey) return false;
+  return true;
+}
+
+function comparableDateKey(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.replaceAll("-", "");
+  if (/^\d{8}$/.test(text)) return text;
+  const dmy = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmy) return `${dmy[3]}${String(dmy[2]).padStart(2, "0")}${String(dmy[1]).padStart(2, "0")}`;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? "" : dateInputValue(date).replaceAll("-", "");
 }
 
 function salesRecoverySearchText(order = {}, meta = {}, candidates = [], persisted = []) {
@@ -4456,13 +4559,17 @@ function salesRecoveryMatchesQtyFilter(progress = {}, filter = "all") {
 }
 
 function clearSalesRecoveryFilters() {
-  state.salesRecovery.filters = { search: "", status: "all", qty: "all" };
+  state.salesRecovery.filters = { search: "", status: "all", qty: "all", fromDate: "", toDate: "" };
   const search = document.getElementById("salesRecoverySearchInput");
   const status = document.getElementById("salesRecoveryStatusFilter");
   const qty = document.getElementById("salesRecoveryQtyFilter");
+  const fromDate = document.getElementById("salesRecoveryFromDate");
+  const toDate = document.getElementById("salesRecoveryToDate");
   if (search) search.value = "";
   if (status) status.value = "all";
   if (qty) qty.value = "all";
+  if (fromDate) fromDate.value = "";
+  if (toDate) toDate.value = "";
   renderSalesRecovery();
 }
 
@@ -4748,7 +4855,9 @@ async function findSalesRecoveryCandidates(voucherNumber) {
         voucherTypeNames: arrayOf(meta.salesVoucherTypeNames).length ? meta.salesVoucherTypeNames : scopeSalesVoucherTypeNames(activeLicenceScope()),
         stockItemNames: arrayOf(meta.stockItemNames).length ? meta.stockItemNames : [meta.stockItemName].filter(Boolean),
         oldBatchName: meta.oldBatchName,
-        targetBatchName: meta.newBatchName
+        targetBatchName: meta.newBatchName,
+        fromDate: state.salesRecovery.filters?.fromDate || "",
+        toDate: state.salesRecovery.filters?.toDate || ""
       }
     });
     const persisted = salesRecoveryPersistedUpdates(meta);
@@ -5483,6 +5592,7 @@ function portalSaleDetailHtml(entry, index = -1) {
   const assignableRows = portalScopeAssignmentRows(entry);
   const selected = selectedPortalItems(entry);
   const selectedKeys = new Set(selected.map(portalRowKey));
+  const uploadPayload = portalUploadPreviewPayload(entry);
   const rows = items.map((item) => {
     const rowKey = portalRowKey(item);
     const synced = portalItemSynced(item);
@@ -5515,8 +5625,30 @@ function portalSaleDetailHtml(entry, index = -1) {
           <tbody>${rows || '<tr><td colspan="8" class="empty-cell">No item rows found in this voucher.</td></tr>'}</tbody>
         </table>
       </div>
+      <div class="portal-payload-preview">
+        <div class="portal-payload-preview-head">
+          <strong>Temporary upload payload</strong>
+          <span>Push करण्याआधी app portal ला हे payload तयार करत आहे.</span>
+        </div>
+        <pre>${escapeHtml(JSON.stringify(uploadPayload, null, 2))}</pre>
+      </div>
     </div>
   `;
+}
+
+function portalUploadPreviewPayload(entry = {}) {
+  const previousActive = state.activePortalSaleEntry;
+  try {
+    state.activePortalSaleEntry = entry;
+    fillPortalFormFromSale(entry);
+    return portalCreateOrderPayload();
+  } catch (error) {
+    return {
+      error: error.message || "Could not build upload payload preview."
+    };
+  } finally {
+    state.activePortalSaleEntry = previousActive;
+  }
 }
 
 function portalDisplayItems(entry = {}, options = {}) {
@@ -5606,9 +5738,18 @@ function fillPortalFormFromSale(entry) {
   form.dataset.sourceReference = entry.reference || "";
   form.dataset.sourceVoucherDate = entry.date || "";
   form.dataset.sourceVoucherTypeName = entry.voucherTypeName || "";
+  form.dataset.buyerName = entry.partyName || entry.partyLedgerName || "";
+  form.dataset.customerMobileNo = entry.customerMobileNo || entry.sathiCustMobNo || "";
+  form.dataset.partyGstin = entry.partyGstin || entry.partyDetails?.gstin || "";
+  const buyerAddressLines = Array.isArray(entry.buyerAddressLines)
+    ? Array.from(new Set(entry.buyerAddressLines.map((line) => String(line || "").trim()).filter(Boolean)))
+    : [];
+  form.dataset.buyerAddress = buyerAddressLines.length ? buyerAddressLines.join(", ") : (entry.buyerAddress || "");
   const typeSummary = portalSaleTypeSummary(entry);
   const buyerLicense = portalBuyerLicenseDisplay(entry, typeSummary);
-  form.buyerCode.value = buyerLicense.value || "";
+  form.buyerCode.value = typeSummary.buyerRole === "FARMER"
+    ? (entry.customerMobileNo || entry.sathiCustMobNo || "")
+    : (buyerLicense.value || "");
   form.ownerCode.value = fields.ownerCode || scope?.clientId || form.ownerCode.value || "";
   form.locationCode.value = fields.locationCode || fields.ownerCode || scope?.clientId || form.locationCode.value || "";
   form.stateCode.value = fields.stateCode || form.stateCode.value || "";
@@ -5617,7 +5758,9 @@ function fillPortalFormFromSale(entry) {
   form.districtCode.value = partyDetails.districtCode || form.districtCode.value || "";
   form.districtName.value = partyDetails.districtName || form.districtName.value || "";
   form.villageCode.value = partyDetails.villageCode || form.villageCode.value || "";
-  form.villageName.value = partyDetails.villageName || form.villageName.value || "";
+  form.villageName.value = form.dataset.buyerAddress || partyDetails.villageName || entry.buyerAddress || form.villageName.value || "";
+  form.phoneNumber.value = entry.customerMobileNo || entry.sathiCustMobNo || "";
+  form.gstNumber.value = form.dataset.partyGstin || "";
   form.plotNo.value = partyDetails.plotNo || form.plotNo.value || "";
   form.lotNum.value = firstLot.lotNum || "";
   form.quantity.value = firstLot.quantity || "";
@@ -5627,16 +5770,16 @@ function fillPortalFormFromSale(entry) {
   form.sellerRole.value = typeSummary.sellerRole;
   form.buyerRole.value = typeSummary.buyerRole;
   form.isRetailSell.value = typeSummary.isRetailSell;
-  if (form.buyerRole.value === "FARMER") form.isRetailSell.value = "Yes";
+  if (form.buyerRole.value === "FARMER") form.isRetailSell.value = "Y";
   const partyTarget = document.getElementById("portalPartyLicenseValue");
   if (partyTarget) partyTarget.textContent = buyerLicense.label;
 }
 
 async function ensurePortalSaleBuyerLicence(entry = {}, settings = {}) {
   const typeSummary = portalSaleTypeSummary(entry);
-  if (typeSummary.isRetailSell === "Yes" || typeSummary.buyerRole === "FARMER") {
+  if (normalizeRetailSellFlag(typeSummary.isRetailSell) === "Y" || typeSummary.buyerRole === "FARMER") {
     entry.voucherBuyerType = "FARMER";
-    entry.buyerLicense = "";
+    entry.buyerLicense = entry.customerMobileNo || entry.sathiCustMobNo || "";
     entry.buyerCottonLicense = "";
     return true;
   }
@@ -5893,7 +6036,11 @@ function portalBuyerValidation(entry = {}, typeSummary = portalSaleTypeSummary(e
   if (entry.licenceScopeBlocked) {
     return { blocked: true, message: entry.licenceScopeIssue || "SATHI batch licence is not assigned" };
   }
-  if (typeSummary.buyerRole === "FARMER") return { blocked: false, message: "" };
+  if (typeSummary.buyerRole === "FARMER") {
+    return cleanBuyerLicenseValue(entry.customerMobileNo || entry.sathiCustMobNo)
+      ? { blocked: false, message: "" }
+      : { blocked: true, message: "Farmer mobile no. required: add SathiCustMobNo in Tally voucher" };
+  }
   if (buyerLicense.value) return { blocked: false, message: "" };
   return {
     blocked: true,
@@ -5923,30 +6070,40 @@ function portalSaleTypeSummary(entry = {}) {
       partyType: "FARMER",
       sellerRole: normalizePortalRole(entry.sellerRole, "DEALER"),
       buyerRole: "FARMER",
-      isRetailSell: "Yes",
+      isRetailSell: "Y",
       saleType: "Farmer sale"
     };
   }
   const voucherBuyerType = entry.voucherBuyerType || entry.sathiVchBuyerType || "";
+  const explicitBuyerRole = normalizePortalRole(voucherBuyerType, "");
+  if (explicitBuyerRole === "FARMER") {
+    return {
+      partyType: "FARMER",
+      sellerRole: normalizePortalRole(entry.sellerRole, "DEALER"),
+      buyerRole: "FARMER",
+      isRetailSell: "Y",
+      saleType: "Farmer sale"
+    };
+  }
   const dealerEvidence = portalSaleDealerEvidence(entry);
   const rawPartyType = voucherBuyerType || entry.buyerPartyType || entry.partyDetails?.partyType || entry.buyerRole;
   const partyType = dealerEvidence ? "DEALER" : normalizePortalRole(rawPartyType, "DEALER");
   const sellerRole = normalizePortalRole(entry.sellerRole, "DEALER");
   const buyerRole = partyType;
-  const isRetailSell = buyerRole === "FARMER" ? "Yes" : "N";
+  const isRetailSell = buyerRole === "FARMER" ? "Y" : "N";
   return {
     partyType,
     sellerRole,
     buyerRole,
     isRetailSell,
-    saleType: isRetailSell === "Yes" || buyerRole === "FARMER" ? "Farmer sale" : "Dealer sale"
+    saleType: normalizeRetailSellFlag(isRetailSell) === "Y" || buyerRole === "FARMER" ? "Farmer sale" : "Dealer sale"
   };
 }
 function portalBuyerLicenseDisplay(entry = {}, typeSummary = portalSaleTypeSummary(entry)) {
-  if (typeSummary.isRetailSell === "Yes" || typeSummary.buyerRole === "FARMER") {
+  if (normalizeRetailSellFlag(typeSummary.isRetailSell) === "Y" || typeSummary.buyerRole === "FARMER") {
     return {
       label: "Not required for farmer",
-      value: "",
+      value: entry.customerMobileNo || entry.sathiCustMobNo || "",
       className: "status-pill status-muted"
     };
   }
@@ -5991,7 +6148,12 @@ function normalizePortalRole(value, fallback) {
 
 function normalizeRetailSell(value) {
   const text = String(value || "").trim().toUpperCase();
-  return ["YES", "Y", "TRUE", "1", "FARMER", "RETAIL", "FARMER SALE"].includes(text) ? "Yes" : "N";
+  return normalizeRetailSellFlag(text);
+}
+
+function normalizeRetailSellFlag(value) {
+  const text = String(value || "").trim().toUpperCase();
+  return ["YES", "Y", "TRUE", "1", "FARMER", "RETAIL", "FARMER SALE"].includes(text) ? "Y" : "N";
 }
 
 function portalTraceForItem(entry, item = {}) {
@@ -8695,7 +8857,13 @@ function selectedPortalItems(entry = {}) {
 }
 
 function portalSelectedRowPayload(entry = {}) {
-  return selectedPortalItems(entry).map((item) => ({
+  const selected = selectedPortalItems(entry);
+  const fallbackRows = portalDisplayItems(entry).filter((item) => !portalItemSynced(item));
+  const rows = selected.length ? selected : fallbackRows;
+  return rows.map((item) => ({
+    partyName: entry.partyName || "",
+    partyLedgerName: entry.partyLedgerName || "",
+    customerMobileNo: entry.customerMobileNo || entry.sathiCustMobNo || "",
     stockItemName: item.stockItemName || "",
     batchName: item.lotNum || "",
     lotNum: item.lotNum || "",

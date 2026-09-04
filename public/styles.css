@@ -7474,6 +7474,42 @@ body[data-theme="green"] .metric {
   font-weight: 700;
 }
 
+.portal-payload-preview {
+  margin-top: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #f8fbff;
+  overflow: hidden;
+}
+
+.portal-payload-preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #dbeafe;
+  color: #1e3a8a;
+}
+
+.portal-payload-preview-head span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.portal-payload-preview pre {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 1100px) {
   .advanced-report-hero,
   .advanced-detail-columns {

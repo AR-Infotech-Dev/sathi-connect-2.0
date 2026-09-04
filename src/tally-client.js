@@ -546,6 +546,11 @@ export class TallyClient {
       if (oldBatchKey && normalizeLookupValue(row.batchName) !== oldBatchKey) return false;
       if (fromDate && normalizeTallyDateForCompare(row.date) < fromDate) return false;
       if (toDate && normalizeTallyDateForCompare(row.date) > toDate) return false;
+      if (oldBatchKey) return true;
+      if (targetBatchKey && normalizeLookupValue(row.batchName) === targetBatchKey) return false;
+      if (mode === "purchase") return true;
+      if (mode === "sales" && row.salesSathiFieldsPresent && !targetBatchKey) return false;
+      if (targetBatchKey) return true;
       return mode === "sales" ? !row.salesSathiFieldsPresent : !row.purchaseSathiFieldsPresent;
     });
     const exactPartyRows = partyKey
@@ -1489,6 +1494,8 @@ function salesVoucherListEnvelope(companyName, voucherTypeName) {
     "VoucherTypeName",
     "PartyName",
     "PartyLedgerName",
+    "Address",
+    "BasicBuyerAddress",
     "Amount",
     "RemoteID",
     "MasterID",
@@ -1505,6 +1512,7 @@ function salesVoucherListEnvelope(companyName, voucherTypeName) {
     "SATHI_PORTAL_ORDER_NO",
     "SATHI_PORTAL_PUSHED_AT",
     "SATHI_PORTAL_PUSH_RESULT",
+    "SathiCustMobNo",
     "SathiStatus",
     "SathiVchNo",
     "SATHI_STATUS",
@@ -2238,6 +2246,10 @@ function parseSalesVouchers(xml) {
     const masterId = extractTagValues(block, "MASTERID")[0] || "";
     const voucherNumber = extractTagValues(block, "VOUCHERNUMBER")[0] || vchKey || "";
     const inventory = parseVoucherInventory(block);
+    const buyerAddressLines = uniqueTextValues([
+      ...extractTagValues(block, "BASICBUYERADDRESS"),
+      ...extractTagValues(block, "ADDRESS")
+    ]);
     vouchers.push({
       voucherNumber,
       voucherKey: vchKey,
@@ -2248,6 +2260,8 @@ function parseSalesVouchers(xml) {
       voucherTypeName: extractTagValues(block, "VOUCHERTYPENAME")[0] || "",
       partyName: extractTagValues(block, "PARTYNAME")[0] || "",
       partyLedgerName: extractTagValues(block, "PARTYLEDGERNAME")[0] || "",
+      buyerAddress: buyerAddressLines[0] || "",
+      buyerAddressLines,
       partyGstin: firstNonEmpty([
         ...extractTagValues(block, "PARTYGSTIN"),
         ...extractTagValues(block, "CONSIGNEEGSTIN"),
@@ -2261,6 +2275,7 @@ function parseSalesVouchers(xml) {
       sathiStatus: firstUdfValue(block, ["SathiStatus", "SATHI_STATUS"]),
       sathiVchNo: firstUdfValue(block, ["SathiVchNo", "SATHI_BILL_NO"]),
       sellerRole: firstUdfValue(block, ["SATHI_SELLER_TYPE", "SATHI_SELLER_ROLE"]),
+      customerMobileNo: firstUdfValue(block, ["SathiCustMobNo", "SATHI_CUST_MOB_NO", "SATHI_CUSTOMER_MOBILE_NO"]),
       voucherBuyerType: firstUdfValue(block, ["SathiVchBuyerType"]),
       voucherBuyerLicense: firstDirectUdfValue(block, ["SathiVchLicNo", "SATHI_VCH_LIC_NO", "SATHI_BUYER_LIC_NO"]),
       voucherBuyerCottonLicense: firstDirectUdfValue(block, ["SathiVchLicNoCtn", "SathiVchLicNoCTN", "SATHI_VCH_LIC_NO_CTN", "SATHI_BUYER_COTTON_LIC_NO"]),
@@ -3945,8 +3960,13 @@ function resolveQuantityMeta(lot, mapping = {}, bill = {}) {
   const unitPlan = mapping.stockItemUnitPlans?.[itemName] || {};
   const physicalKg = physicalKgQuantity(lot);
   const totalBags = Number(lot.totalBags || 0);
-  const primaryUnit = cleanQuantityUnit(unitPlan.baseUnit || mapping.stockUnitOverrides?.[itemName] || unitPlan.quantityUnitName || mapping.unitName || "Kgs");
-  const secondaryUnit = cleanQuantityUnit(unitPlan.additionalUnit || "");
+  const planBaseUnit = unitPlan.baseUnit || unitPlan.baseUnits || "";
+  const planAdditionalUnit = unitPlan.additionalUnit || unitPlan.additionalUnits || "";
+  const planConversion = Number(unitPlan.conversion || 0);
+  const planDenominator = Number(unitPlan.denominator || 1) || 1;
+  const hasValidCompoundConversion = Number.isFinite(planConversion) && planConversion > 0 && Number.isFinite(planDenominator) && planDenominator > 0;
+  const primaryUnit = cleanQuantityUnit(planBaseUnit || mapping.stockUnitOverrides?.[itemName] || unitPlan.quantityUnitName || mapping.unitName || "Kgs");
+  const secondaryUnit = hasValidCompoundConversion ? cleanQuantityUnit(planAdditionalUnit || "") : "";
   const primaryQuantity = quantityForUnit(lot, primaryUnit, physicalKg, totalBags);
   const secondaryQuantity = quantityForUnit(lot, secondaryUnit, physicalKg, totalBags);
   const hasSecondary = secondaryUnit

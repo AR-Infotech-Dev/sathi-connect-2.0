@@ -88,10 +88,6 @@
               <span class="nav-icon">P</span>
               <span>Purchase</span>
             </button>
-            <button class="nav-item nav-subitem" data-tab="reportRojmel" data-report-nav="rojmel" type="button" hidden>
-              <span class="nav-icon">J</span>
-              <span>Rojmel</span>
-            </button>
             <button class="nav-item nav-subitem" data-tab="reportBatchExpiry" data-report-nav="batchExpiry"
               type="button">
               <span class="nav-icon">B</span>
@@ -180,7 +176,7 @@
           <span class="hidden sidebar-support-line ass" id="sidebarSupportLine">SUPPORT 
             <span id="sidebarSupportContacts"></span>
           </span>
-          <span class="app-version">v2.0.7</span>
+          <span class="app-version">v1.0.8</span>
         </div>
       </div>
     </aside>
@@ -656,6 +652,14 @@
                 <option value="excess">Excess</option>
               </select>
             </label>
+            <label>
+              <span>From</span>
+              <input id="salesRecoveryFromDate" type="date">
+            </label>
+            <label>
+              <span>To</span>
+              <input id="salesRecoveryToDate" type="date">
+            </label>
             <button class="filter-clear-button" id="salesRecoveryFilterClearBtn" type="button">Clear filters</button>
           </div>
           <div class="table-wrap">
@@ -986,10 +990,6 @@
             <button class="report-switch-button" data-report-type="sales" type="button">
               <span>Sent to SATHI</span>
               <strong id="salesReportCount">0</strong>
-            </button>
-            <button class="report-switch-button" data-report-type="rojmel" type="button" hidden>
-              <span>Rojmel</span>
-              <strong id="rojmelReportCount">0</strong>
             </button>
             <button class="report-switch-button" data-report-type="batchExpiry" type="button">
               <span>Batch Expiry</span>
