@@ -6,6 +6,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    
     "start": "electron .",
     "web": "node src/server.js",
     "help": "node src/index.js help",
